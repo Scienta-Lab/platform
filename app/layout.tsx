@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Comfortaa } from "next/font/google";
 
-import { AppHeader } from "@/components/app-header";
-import { SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { UserProvider } from "@/components/user-context";
 
@@ -25,15 +23,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${comfortaa.className} overscroll-none antialiased [--header-height:calc(theme(spacing.20))]`}
-      >
-        <UserProvider>
-          <SidebarProvider className="flex flex-col">
-            <AppHeader />
-            {children}
-          </SidebarProvider>
-        </UserProvider>
+      <body className={`${comfortaa.className} overscroll-none antialiased`}>
+        <UserProvider>{children}</UserProvider>
         <Toaster
           closeButton
           className="[&_[data-close-button]]:top-3.5! [&_[data-close-button]]:right-0! [&_[data-close-button]]:left-auto!"

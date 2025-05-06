@@ -1,15 +1,28 @@
-import { useEffect, useRef } from "react";
+"use client";
+
 import * as d3 from "d3";
+import { HTMLAttributes, useEffect, useMemo, useRef } from "react";
 
 // Vibe coded by GPT-4.1 starting from:
 // https://observablehq.com/@d3/force-directed-graph/2
-export function ForceGraph({
-  nodes,
-  links,
-}: {
+type ForceGraphProps = HTMLAttributes<HTMLDivElement> & {
   nodes: GeneNode[];
   links: GeneEdge[];
-}) {
+};
+
+export const StaticForceGraph = ({
+  nodes,
+  links,
+  ...props
+}: ForceGraphProps) => {
+  const { nodes: staticNodes, links: staticLinks } = useMemo(
+    () => ({ nodes, links }),
+    [],
+  );
+  return <ForceGraph nodes={staticNodes} links={staticLinks} {...props} />;
+};
+
+export function ForceGraph({ nodes, links, ...props }: ForceGraphProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const gRef = useRef<SVGGElement | null>(null);
@@ -196,7 +209,7 @@ export function ForceGraph({
   };
 
   return (
-    <div className="stack relative h-full w-full">
+    <div className="stack relative h-full w-full" {...props}>
       <div
         ref={ref}
         className="flex h-full w-full items-center justify-center"
