@@ -10,14 +10,20 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { UIMessage } from "ai";
 import { revalidateTag, unstable_cache } from "next/cache";
+import { redirect } from "next/navigation";
 import { cache } from "react";
-import { v4 as uuid } from "uuid";
 
 const chatTable = "Chat";
 
-export async function startConversation({ title }: { title?: string }) {
+export async function startConversation({
+  id,
+  title,
+}: {
+  id: string;
+  title?: string;
+}) {
   const user = await verifySession();
-  const conversationId = uuid();
+  const conversationId = id;
   const now = new Date().toISOString();
   const conversation = {
     PK: `USER#${user.id}`,
@@ -29,6 +35,8 @@ export async function startConversation({ title }: { title?: string }) {
   await dynamodbClient.send(
     new PutCommand({ TableName: chatTable, Item: conversation }),
   );
+
+  revalidateTag(`conversations-${user.id}`);
 
   return conversation;
 }
@@ -59,10 +67,34 @@ export async function saveMessage({
   return item as SavedMessage;
 }
 
+export const getConversation = cache(async (conversationId?: string) => {
+  const user = await verifySession();
+  if (!conversationId) return undefined;
+  const conversation = await unstable_cache(
+    async () => {
+      const res = await dynamodbClient.send(
+        new QueryCommand({
+          TableName: chatTable,
+          KeyConditionExpression: "PK = :user_pk AND SK = :conv_sk",
+          ExpressionAttributeValues: {
+            ":user_pk": `USER#${user.id}`,
+            ":conv_sk": `CONVERSATION#${conversationId}`,
+          },
+        }),
+      );
+      return (res.Items && res.Items[0]) as ConversationMetadata | undefined;
+    },
+    [user.id, conversationId],
+    { tags: [`conversation-${conversationId}`] },
+  )();
+  return conversation;
+});
+
 export const getConversations = cache(async () => {
   const user = await verifySession();
   const conversations = await unstable_cache(
     async () => {
+      console.log("GET CONVERSATIONS");
       const res = await dynamodbClient.send(
         new QueryCommand({
           TableName: chatTable,
@@ -127,15 +159,18 @@ export async function deleteConversation(conversationId: string) {
   }
 
   revalidateTag(`conversations-${user.id}`);
-  return;
+  redirect("/chat");
 }
 
 export async function getMessages(
-  conversationId: string,
+  conversationId?: string,
   // Options
   { keysOnly = false } = {},
 ) {
   await verifySession();
+
+  if (!conversationId) return [];
+
   const res = await dynamodbClient.send(
     new QueryCommand({
       TableName: chatTable,

@@ -2,12 +2,13 @@ import { anthropic } from "@ai-sdk/anthropic";
 import {
   appendResponseMessages,
   experimental_createMCPClient as createMCPClient,
+  generateText,
   streamText,
   UIMessage,
 } from "ai";
 import { v4 as uuid } from "uuid";
 
-import { saveMessage } from "@/app/actions/chat";
+import { saveMessage, startConversation } from "@/app/actions/chat";
 import { verifySession } from "@/lib/dal";
 
 // Allow streaming responses up to 30 seconds
@@ -28,11 +29,21 @@ export async function POST(req: Request) {
     id: string;
   };
 
+  let conversation;
+  if (messages.length === 1) {
+    conversation = await startConversation({
+      title: await generateTitleFromUserMessage({
+        message: messages[0],
+      }),
+      id,
+    });
+  }
+
   const lastMessage = messages?.at(-1);
   let savedMessage;
   if (lastMessage && lastMessage.role === "user") {
     savedMessage = await saveMessage({
-      conversationId: id,
+      conversationId: conversation?.id || id,
       message: {
         ...lastMessage,
         createdAt: new Date(lastMessage.id.split("#")[1]),
@@ -86,7 +97,7 @@ export async function POST(req: Request) {
   });
 }
 
-export function errorHandler(error: unknown) {
+function errorHandler(error: unknown) {
   if (error == null) {
     return "unknown error";
   }
@@ -100,4 +111,26 @@ export function errorHandler(error: unknown) {
   }
 
   return JSON.stringify(error);
+}
+
+// From
+// https://github.com/vercel/ai-chatbot/blob/8a7d3e9950bfb363e92bd58200b9366053102d02/app/(chat)/actions.ts#L18
+async function generateTitleFromUserMessage({
+  message,
+}: {
+  message: UIMessage;
+}) {
+  const { text: title } = await generateText({
+    model: anthropic("claude-3-5-haiku-latest"),
+    system: `\n
+    - you will generate a short title based on the first message a user begins a conversation with
+    - ensure it is not more than 80 characters long
+    - the title should be a summary of the user's message
+    - If the user message is a question, don't answer the question, keep focusing on generating a good title
+    - do not use quotes or colons`,
+    prompt: JSON.stringify(message),
+    maxTokens: 80,
+  });
+
+  return title;
 }

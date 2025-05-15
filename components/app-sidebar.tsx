@@ -5,12 +5,16 @@ import {
   LucideChevronsUpDown,
   LucideCloud,
   LucideHome,
+  LucideIcon,
   LucideLoader2,
+  LucidePlusCircle,
   LucideTrash2,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ComponentProps, useTransition } from "react";
+import { v4 as uuid } from "uuid";
 
 import { ConversationMetadata, deleteConversation } from "@/app/actions/chat";
 import {
@@ -28,9 +32,9 @@ import {
 import { useUser } from "./user-context";
 import { UserAvatar, UserMenu } from "./user-menu";
 
+import { cn } from "@/lib/utils";
 import logo from "@/public/logo.svg";
 import { Button } from "./ui/button";
-import { cn } from "@/lib/utils";
 
 export function AppSidebar({
   history,
@@ -69,6 +73,13 @@ export function AppSidebar({
             <SimpleMenuButton href="#" icon={LucideBook}>
               Wiki Scienta
             </SimpleMenuButton>
+            <SimpleMenuButton
+              onClick={() => redirect(`/chat/${uuid()}`)}
+              icon={LucidePlusCircle}
+              className="text-primary font-bold"
+            >
+              New Chat
+            </SimpleMenuButton>
           </SidebarMenu>
         </SidebarGroup>
         <SidebarGroup className="h-full overflow-hidden">
@@ -84,7 +95,7 @@ export function AppSidebar({
                     actionIcon={LucideTrash2}
                     onDelete={() => deleteConversation(conversation.id)}
                   >
-                    {conversation.title}
+                    <span className="truncate">{conversation.title}</span>
                   </SimpleMenuButton>
                 ))}
               </div>
@@ -128,26 +139,35 @@ const SimpleMenuButton = ({
   size = "default",
   href,
   onDelete,
+  onClick,
+  className,
+  ...props
 }: {
   children: React.ReactNode;
-  icon?: React.ElementType;
-  actionIcon?: React.ElementType;
+  icon?: LucideIcon;
+  actionIcon?: LucideIcon;
   size?: React.ComponentProps<typeof SidebarMenuButton>["size"];
-  href: string;
+  href?: string;
+  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   onDelete?: (e: React.MouseEvent<HTMLButtonElement>) => void;
-}) => {
+} & React.ComponentProps<typeof SidebarMenuButton>) => {
   const [isDeleting, startTransition] = useTransition();
 
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
-        asChild
+        asChild={href !== undefined}
         size={size}
-        className="group/simple-menu-button hover:bg-primary/10"
+        className={cn(
+          "group/simple-menu-button hover:bg-primary/10",
+          className,
+        )}
+        onClick={onClick}
+        {...props}
       >
-        <Link href={href}>
+        <MaybeLink href={href}>
           {Icon && <Icon />}
-          <span>{children}</span>
+          <span className="flex overflow-hidden">{children}</span>
           {ActionIcon && (
             <Button
               className={cn(
@@ -160,6 +180,7 @@ const SimpleMenuButton = ({
                 e.preventDefault();
                 startTransition(() => {
                   onDelete?.(e);
+                  redirect("/chat");
                 });
               }}
             >
@@ -170,8 +191,16 @@ const SimpleMenuButton = ({
               )}
             </Button>
           )}
-        </Link>
+        </MaybeLink>
       </SidebarMenuButton>
     </SidebarMenuItem>
   );
+};
+
+const MaybeLink = ({
+  href,
+  ...props
+}: Omit<React.ComponentProps<typeof Link>, "href"> & { href?: string }) => {
+  if (!href) return <>{props.children}</>;
+  return <Link href={href} {...props} />;
 };

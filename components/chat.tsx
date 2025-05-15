@@ -4,6 +4,7 @@ import {
   CreateMessage as AiSdkCreateMessage,
   Message,
   useChat,
+  UseChatHelpers,
 } from "@ai-sdk/react";
 import {
   LucideArrowRightCircle,
@@ -13,10 +14,14 @@ import {
   LucideSend,
   LucideTrash2,
 } from "lucide-react";
-import React from "react";
+import React, { useMemo } from "react";
 import { v4 as uuid } from "uuid";
 
-import { SavedMessage, updateMessage } from "@/app/actions/chat";
+import {
+  ConversationMetadata,
+  SavedMessage,
+  updateMessage,
+} from "@/app/actions/chat";
 import { GeneEdge, GeneNode, StaticForceGraph } from "@/components/force-graph";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,6 +36,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { useRouter } from "next/navigation";
 
 const suggestions = [
   "Can you create a gene association network for CD5, including only the 20 most co-expressed genes.",
@@ -38,17 +44,23 @@ const suggestions = [
 ];
 
 export default function Chat({
-  conversationId,
   conversation,
+  messages: initialMessages,
 }: {
-  conversationId: string;
-  conversation: SavedMessage[];
+  conversation?: ConversationMetadata;
+  messages?: SavedMessage[];
 }) {
+  const router = useRouter();
+
   // Chat state
+  const conversationId = useMemo(
+    () => conversation?.id ?? uuid(),
+    [conversation],
+  );
   const {
     messages,
     input,
-    handleSubmit,
+    handleSubmit: _useChatHandleSubmit,
     setMessages,
     append,
     setInput,
@@ -56,8 +68,13 @@ export default function Chat({
   } = useChat({
     id: conversationId,
     maxSteps: 2,
-    initialMessages: conversation,
+    initialMessages,
     sendExtraMessageFields: true,
+    onFinish: () => {
+      // TODO: ideally we would like to refresh only if this is the first message of the
+      // conversation, because we do that just to update the title in the sidebar
+      router.refresh();
+    },
     // I don't like the idea of generating the id on the client side, but
     // the function is offered by useChat so I guess it's ok for now
     // as I don't have a better solution
@@ -69,6 +86,13 @@ export default function Chat({
   // as we save each message and then setMessages from the onFinish callback
   const savedMessages = messages as SavedMessage[];
   const hasMessages = savedMessages.length > 0;
+
+  const handleSubmit: UseChatHelpers["handleSubmit"] = async (e) => {
+    if (window.location.pathname !== `/chat/${conversationId}`)
+      window.history.pushState({}, "", `/chat/${conversationId}`);
+
+    _useChatHandleSubmit(e);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -88,7 +112,7 @@ export default function Chat({
         className="grid h-[100dvh] grid-rows-[1fr_auto] overflow-hidden bg-transparent px-4"
       >
         <div className="no-scrollbar flex h-full flex-col-reverse overflow-x-hidden overflow-y-auto">
-          {!hasMessages ? (
+          {!hasMessages || !conversationId ? (
             <Suggestions onClick={append} />
           ) : (
             <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 pt-4 pb-4">
@@ -163,18 +187,20 @@ export default function Chat({
             </Button>
           </div>
           <div className="mt-6 flex flex-col gap-4">
-            <h1 className="text-xl">Analysis of genes CD5, CD6, and CD7</h1>
-            {savedMessages.map((msg) => (
-              <ChatMessage
-                key={msg.id}
-                message={msg}
-                type="report"
-                conversationId={conversationId}
-                setMessages={(messages) =>
-                  setMessages(messages as React.SetStateAction<Message[]>)
-                }
-              />
-            ))}
+            <h1 className="max-w-prose text-lg">{conversation?.title}</h1>
+            {savedMessages.length === 0 || !conversationId
+              ? null
+              : savedMessages.map((msg) => (
+                  <ChatMessage
+                    key={msg.id}
+                    message={msg}
+                    type="report"
+                    conversationId={conversationId}
+                    setMessages={(messages) =>
+                      setMessages(messages as React.SetStateAction<Message[]>)
+                    }
+                  />
+                ))}
           </div>
         </div>
       </ResizablePanel>
