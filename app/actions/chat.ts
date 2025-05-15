@@ -2,8 +2,15 @@
 
 import { verifySession } from "@/lib/dal";
 import { dynamodbClient } from "@/lib/dynamodb";
-import { PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  BatchWriteCommand,
+  PutCommand,
+  QueryCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
 import { UIMessage } from "ai";
+import { revalidateTag, unstable_cache } from "next/cache";
+import { cache } from "react";
 import { v4 as uuid } from "uuid";
 
 const chatTable = "Chat";
@@ -52,20 +59,28 @@ export async function saveMessage({
   return item as SavedMessage;
 }
 
-export async function getConversations() {
+export const getConversations = cache(async () => {
   const user = await verifySession();
-  const res = await dynamodbClient.send(
-    new QueryCommand({
-      TableName: chatTable,
-      KeyConditionExpression: "PK = :user_pk AND begins_with(SK, :conv_prefix)",
-      ExpressionAttributeValues: {
-        ":user_pk": `USER#${user.id}`,
-        ":conv_prefix": "CONVERSATION#",
-      },
-    }),
-  );
-  return (res.Items || []) as ConversationMetadata[];
-}
+  const conversations = await unstable_cache(
+    async () => {
+      const res = await dynamodbClient.send(
+        new QueryCommand({
+          TableName: chatTable,
+          KeyConditionExpression:
+            "PK = :user_pk AND begins_with(SK, :conv_prefix)",
+          ExpressionAttributeValues: {
+            ":user_pk": `USER#${user.id}`,
+            ":conv_prefix": "CONVERSATION#",
+          },
+        }),
+      );
+      return (res.Items || []) as ConversationMetadata[];
+    },
+    [user.id],
+    { tags: [`conversations-${user.id}`] },
+  )();
+  return conversations;
+});
 
 export type ConversationMetadata = {
   id: string;
@@ -73,7 +88,54 @@ export type ConversationMetadata = {
   createdAt: string;
 };
 
-export async function getMessages(conversationId: string) {
+export async function deleteConversation(conversationId: string) {
+  const user = await verifySession();
+  const messages = await getMessages(conversationId, { keysOnly: true });
+
+  const messageDeleteRequests = messages.map((item) => ({
+    DeleteRequest: {
+      Key: {
+        PK: item.PK,
+        SK: item.SK,
+      },
+    },
+  }));
+
+  const conversationMetaDeleteRequest = {
+    DeleteRequest: {
+      Key: {
+        PK: `USER#${user.id}`,
+        SK: `CONVERSATION#${conversationId}`,
+      },
+    },
+  };
+
+  // Batch delete (max 25 per batch)
+  const allDeleteRequests = [
+    ...messageDeleteRequests,
+    conversationMetaDeleteRequest,
+  ];
+  while (allDeleteRequests.length > 0) {
+    const batch = allDeleteRequests.splice(0, 25);
+    await dynamodbClient.send(
+      new BatchWriteCommand({
+        RequestItems: {
+          [chatTable]: batch,
+        },
+      }),
+    );
+  }
+
+  revalidateTag(`conversations-${user.id}`);
+  return;
+}
+
+export async function getMessages(
+  conversationId: string,
+  // Options
+  { keysOnly = false } = {},
+) {
+  await verifySession();
   const res = await dynamodbClient.send(
     new QueryCommand({
       TableName: chatTable,
@@ -83,6 +145,7 @@ export async function getMessages(conversationId: string) {
         ":msg_prefix": "MESSAGE#",
       },
       ScanIndexForward: true,
+      ProjectionExpression: keysOnly ? "PK, SK" : undefined,
     }),
   );
   return (res.Items || []) as SavedMessage[];

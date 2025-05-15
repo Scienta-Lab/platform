@@ -5,11 +5,14 @@ import {
   LucideChevronsUpDown,
   LucideCloud,
   LucideHome,
+  LucideLoader2,
+  LucideTrash2,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { ComponentProps } from "react";
+import { ComponentProps, useTransition } from "react";
 
+import { ConversationMetadata, deleteConversation } from "@/app/actions/chat";
 import {
   Sidebar,
   SidebarContent,
@@ -26,14 +29,14 @@ import { useUser } from "./user-context";
 import { UserAvatar, UserMenu } from "./user-menu";
 
 import logo from "@/public/logo.svg";
-import { ConversationMetadata } from "@/app/actions/chat";
+import { Button } from "./ui/button";
+import { cn } from "@/lib/utils";
 
 export function AppSidebar({
   history,
   ...props
 }: ComponentProps<typeof Sidebar> & { history: ConversationMetadata[] }) {
   const user = useUser();
-
   return (
     <Sidebar className="bg-secondary/15 border-gray-200" {...props}>
       <SidebarHeader>
@@ -78,6 +81,8 @@ export function AppSidebar({
                     key={conversation.id}
                     href={`/chat/${conversation.id}`}
                     size="sm"
+                    actionIcon={LucideTrash2}
+                    onDelete={() => deleteConversation(conversation.id)}
                   >
                     {conversation.title}
                   </SimpleMenuButton>
@@ -119,20 +124,54 @@ export function AppSidebar({
 const SimpleMenuButton = ({
   children,
   icon: Icon,
+  actionIcon: ActionIcon,
   size = "default",
   href,
+  onDelete,
 }: {
   children: React.ReactNode;
   icon?: React.ElementType;
+  actionIcon?: React.ElementType;
   size?: React.ComponentProps<typeof SidebarMenuButton>["size"];
   href: string;
-}) => (
-  <SidebarMenuItem>
-    <SidebarMenuButton asChild size={size} className="hover:bg-primary/10">
-      <Link href={href}>
-        {Icon && <Icon />}
-        <span>{children}</span>
-      </Link>
-    </SidebarMenuButton>
-  </SidebarMenuItem>
-);
+  onDelete?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+}) => {
+  const [isDeleting, startTransition] = useTransition();
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        asChild
+        size={size}
+        className="group/simple-menu-button hover:bg-primary/10"
+      >
+        <Link href={href}>
+          {Icon && <Icon />}
+          <span>{children}</span>
+          {ActionIcon && (
+            <Button
+              className={cn(
+                "ml-auto box-content hidden border border-none bg-transparent p-1 shadow-none group-hover/simple-menu-button:block hover:bg-transparent",
+                isDeleting && "block opacity-50",
+              )}
+              asChild
+              variant="outline"
+              onClick={(e) => {
+                e.preventDefault();
+                startTransition(() => {
+                  onDelete?.(e);
+                });
+              }}
+            >
+              {isDeleting ? (
+                <LucideLoader2 className="size-4 shrink-0 animate-spin text-gray-500" />
+              ) : (
+                <ActionIcon className="size-4 shrink-0 text-gray-500 hover:text-red-500" />
+              )}
+            </Button>
+          )}
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+};

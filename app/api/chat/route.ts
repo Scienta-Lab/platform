@@ -80,5 +80,24 @@ export async function POST(req: Request) {
     },
   });
 
-  return result.toDataStreamResponse();
+  return result.toDataStreamResponse({
+    getErrorMessage:
+      process.env.NODE_ENV === "development" ? errorHandler : undefined,
+  });
+}
+
+export function errorHandler(error: unknown) {
+  if (error == null) {
+    return "unknown error";
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return JSON.stringify(error);
 }
