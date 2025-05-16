@@ -67,7 +67,7 @@ export default function Chat({
     status,
   } = useChat({
     id: conversationId,
-    maxSteps: 2,
+    maxSteps: 5,
     initialMessages,
     sendExtraMessageFields: true,
     onFinish: () => {
@@ -372,16 +372,34 @@ const ChatMessage = ({
       );
     }
 
-    if (
-      part.toolInvocation.state === "result" &&
-      part.toolInvocation.result.isError
-    ) {
+    if (part.toolInvocation.state !== "result") return null;
+
+    if (part.toolInvocation.result.isError) {
       return (
         <ErrorMessage key={`${message.id}-${idx}`}>
           {part.toolInvocation.result.content[0].text}
         </ErrorMessage>
       );
     }
+
+    return (
+      <TextMessageActions
+        key={`${message.id}-${idx}`}
+        buttonProps={{ disabled }}
+        onSave={
+          type === "default" ? () => addToReport(message.id, idx) : undefined
+        }
+        onDelete={
+          type === "report"
+            ? () => removeFromReport(message.id, idx)
+            : undefined
+        }
+      >
+        <TextMessage key={`${message.id}-${idx}`} role={role}>
+          {part.toolInvocation.result.content[0].text}
+        </TextMessage>
+      </TextMessageActions>
+    );
   });
 };
 
