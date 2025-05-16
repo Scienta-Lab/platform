@@ -105,6 +105,8 @@ export default function Chat({
     console.log("Saving report...");
   };
 
+  console.log({ messages });
+
   return (
     <ResizablePanelGroup className="h-full" direction="horizontal">
       <ResizablePanel
@@ -367,6 +369,17 @@ const ChatMessage = ({
             }
           />
         </FigureMessageActions>
+      );
+    }
+
+    if (
+      part.toolInvocation.state === "result" &&
+      part.toolInvocation.result.isError
+    ) {
+      return (
+        <ErrorMessage key={`${message.id}-${idx}`}>
+          {part.toolInvocation.result.content[0].text}
+        </ErrorMessage>
       );
     }
   });
