@@ -14,13 +14,6 @@ import { verifySession } from "@/lib/dal";
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
 
-const mcpClient = await createMCPClient({
-  transport: {
-    type: "sse",
-    url: "https://platform-mcp-452652483423.europe-west4.run.app/sse",
-  },
-});
-
 export async function POST(req: Request) {
   await verifySession();
 
@@ -55,12 +48,15 @@ export async function POST(req: Request) {
     ? messages
     : [...messages.slice(0, -1), savedMessage]) as unknown as UIMessage[];
 
+  const mcpClient = await createMCPClient({
+    transport: {
+      type: "sse",
+      url: "https://platform-mcp-452652483423.europe-west4.run.app/sse",
+    },
+  });
+
   const result = streamText({
     model: anthropic("claude-3-7-sonnet-20250219"),
-    // https://ai-sdk.dev/docs/ai-sdk-core/tools-and-tool-calling#closing-the-mcp-client
-    // Don't know what we should do here as closing the client seems to prevent subsequent interactions
-    // onFinish: () => mcpClient.close(),
-    // onError: () => mcpClient.close(),
     maxRetries: 1,
     maxSteps: 1,
     experimental_generateMessageId: () =>
@@ -70,6 +66,8 @@ export async function POST(req: Request) {
     system:
       "When you call tools, their result will be automatically displayed to the user. Do not repeat them to the user. Instead, assert that you successfully called the tool and give a bit of context if needed.",
     onFinish: async ({ response }) => {
+      await mcpClient.close();
+
       const newMessage = appendResponseMessages({
         messages: messages as unknown as UIMessage[], // Have to do this because type isn't right, cf message assertion above,
         responseMessages: response.messages,

@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { redirect, useRouter } from "next/navigation";
 import { ComponentProps, useTransition } from "react";
 import { v4 as uuid } from "uuid";
 
@@ -151,6 +151,7 @@ const SimpleMenuButton = ({
   onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   onDelete?: (e: React.MouseEvent<HTMLButtonElement>) => void;
 } & React.ComponentProps<typeof SidebarMenuButton>) => {
+  const router = useRouter();
   const [isDeleting, startTransition] = useTransition();
 
   return (
@@ -180,7 +181,8 @@ const SimpleMenuButton = ({
                 e.preventDefault();
                 startTransition(() => {
                   onDelete?.(e);
-                  redirect("/chat");
+                  router.push("/chat");
+                  router.refresh();
                 });
               }}
             >

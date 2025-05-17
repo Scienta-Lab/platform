@@ -10,7 +10,6 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { UIMessage } from "ai";
 import { revalidateTag, unstable_cache } from "next/cache";
-import { redirect } from "next/navigation";
 import { cache } from "react";
 
 const chatTable = "Chat";
@@ -94,7 +93,6 @@ export const getConversations = cache(async () => {
   const user = await verifySession();
   const conversations = await unstable_cache(
     async () => {
-      console.log("GET CONVERSATIONS");
       const res = await dynamodbClient.send(
         new QueryCommand({
           TableName: chatTable,
@@ -159,7 +157,6 @@ export async function deleteConversation(conversationId: string) {
   }
 
   revalidateTag(`conversations-${user.id}`);
-  redirect("/chat");
 }
 
 export async function getMessages(

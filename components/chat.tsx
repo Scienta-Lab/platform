@@ -128,6 +128,11 @@ export default function Chat({
                   }
                 />
               ))}
+              {status === "submitted" ? (
+                <div className="mt-3 ml-2 flex items-center gap-5">
+                  <div className="bg-primary size-3.5 animate-pulse rounded-full"></div>
+                </div>
+              ) : null}
             </div>
           )}
         </div>
