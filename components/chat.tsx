@@ -25,7 +25,7 @@ import {
 import { GeneEdge, GeneNode, StaticForceGraph } from "@/components/force-graph";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { TextMessage } from "@/components/ui/message";
+import { MarkdownTextMessage, TextMessage } from "@/components/ui/message";
 import {
   Popover,
   PopoverContent,
@@ -37,6 +37,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { useRouter } from "next/navigation";
+import { Article, ArticleCollapsible } from "./article";
 
 const suggestions = [
   "Can you create a gene association network for CD5, including only the 20 most co-expressed genes.",
@@ -291,7 +292,7 @@ const ChatMessage = ({
               : undefined
           }
         >
-          <TextMessage role={role}>{part.text}</TextMessage>
+          <MarkdownTextMessage role={role}>{part.text}</MarkdownTextMessage>
         </TextMessageActions>
       );
     }
@@ -379,6 +380,28 @@ const ChatMessage = ({
 
     if (part.toolInvocation.state !== "result") return null;
 
+    if (toolName === "biomcp_article_searcher") {
+      const articles: Article[] = JSON.parse(
+        part.toolInvocation.result.content[0].text,
+      );
+
+      return (
+        <TextMessage
+          key={`${message.id}-${idx}`}
+          role={role}
+          className="space-y-1 [&_div]:py-1 [&>div]:border-b [&>div]:border-gray-300 [&>div]:last:border-b-0"
+        >
+          {articles.map((article, n) => (
+            <ArticleCollapsible
+              key={`${article.pmid}`}
+              article={article}
+              defaultOpen={n === 0}
+            />
+          ))}
+        </TextMessage>
+      );
+    }
+
     if (part.toolInvocation.result.isError) {
       return (
         <ErrorMessage key={`${message.id}-${idx}`}>
@@ -400,9 +423,9 @@ const ChatMessage = ({
             : undefined
         }
       >
-        <TextMessage key={`${message.id}-${idx}`} role={role}>
+        <MarkdownTextMessage key={`${message.id}-${idx}`} role={role}>
           {part.toolInvocation.result.content[0].text}
-        </TextMessage>
+        </MarkdownTextMessage>
       </TextMessageActions>
     );
   });
