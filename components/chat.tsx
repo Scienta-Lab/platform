@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/resizable";
 import { useRouter } from "next/navigation";
 import { Article, ArticleCollapsible } from "./article";
+import { Trial, TrialCollapsible } from "./trial";
 
 const suggestions = [
   "Can you create a gene association network for CD5, including only the 20 most co-expressed genes.",
@@ -380,6 +381,14 @@ const ChatMessage = ({
 
     if (part.toolInvocation.state !== "result") return null;
 
+    if (part.toolInvocation.result.isError) {
+      return (
+        <ErrorMessage key={`${message.id}-${idx}`}>
+          {part.toolInvocation.result.content[0].text}
+        </ErrorMessage>
+      );
+    }
+
     if (toolName === "biomcp_article_searcher") {
       const articles: Article[] = JSON.parse(
         part.toolInvocation.result.content[0].text,
@@ -402,11 +411,25 @@ const ChatMessage = ({
       );
     }
 
-    if (part.toolInvocation.result.isError) {
+    if (toolName === "biomcp_trial_searcher") {
+      const trials: Trial[] = JSON.parse(
+        part.toolInvocation.result.content[0].text,
+      );
+
       return (
-        <ErrorMessage key={`${message.id}-${idx}`}>
-          {part.toolInvocation.result.content[0].text}
-        </ErrorMessage>
+        <TextMessage
+          key={`${message.id}-${idx}`}
+          role={role}
+          className="space-y-1 [&_div]:py-1 [&>div]:border-b [&>div]:border-gray-300 [&>div]:last:border-b-0"
+        >
+          {trials.map((trial, n) => (
+            <TrialCollapsible
+              key={`${trial["NCT Number"]}`}
+              trial={trial}
+              defaultOpen={n === 0}
+            />
+          ))}
+        </TextMessage>
       );
     }
 

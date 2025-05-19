@@ -64,19 +64,10 @@ export function ArticleCollapsible({
   );
 }
 
-const Metadata = ({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) => {
-  const isStringOrNumber =
-    typeof value === "string" || typeof value === "number";
+const Metadata = ({ label, value }: { label: string; value: string }) => {
   return (
-    <div className="flex items-center gap-2">
-      <p className="my-0 font-bold">{label}:</p>
-      {isStringOrNumber ? <p className="my-0">{value}</p> : value}
-    </div>
+    <p className="my-1">
+      <span className="font-bold">{label}:</span> {value}
+    </p>
   );
 };
