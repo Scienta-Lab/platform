@@ -28,7 +28,7 @@ const domains = [
     title: "Rheumatology",
     description: "Access EVA for rheumatology disease models.",
     samples: ["Blood", "Lacrimal"],
-    diseases: ["Sjögren’s Syndrome", "Rheumatoid Arthritis"],
+    diseases: ["Sjögren’s Syndrome"],
     button: { text: "Start", disabled: false },
   },
   {
@@ -48,8 +48,13 @@ const domains = [
   {
     title: "Personalized",
     description: "Access EVA by personalizing your sample type and disease.",
-    samples: ["Blood", "Skin"],
-    diseases: ["Sjögren’s Syndrome"],
+    samples: ["Blood", "Skin", "Lacrimal", "Digestive"],
+    diseases: [
+      "Sjögren’s Syndrome",
+      "Rheumatoid Arthritis",
+      "Psoriasis",
+      "Crohn’s Disease",
+    ],
     button: { text: "Available soon", disabled: true },
   },
 ];

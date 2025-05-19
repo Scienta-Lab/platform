@@ -149,7 +149,7 @@ const SimpleMenuButton = ({
   size?: React.ComponentProps<typeof SidebarMenuButton>["size"];
   href?: string;
   onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
-  onDelete?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  onDelete?: (e: React.MouseEvent<HTMLButtonElement>) => Promise<void>;
 } & React.ComponentProps<typeof SidebarMenuButton>) => {
   const router = useRouter();
   const [isDeleting, startTransition] = useTransition();
@@ -179,8 +179,8 @@ const SimpleMenuButton = ({
               variant="outline"
               onClick={(e) => {
                 e.preventDefault();
-                startTransition(() => {
-                  onDelete?.(e);
+                startTransition(async () => {
+                  await onDelete?.(e);
                   router.push("/chat");
                   router.refresh();
                 });
