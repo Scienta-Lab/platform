@@ -187,37 +187,51 @@ export async function updateMessage({
   messageId,
   partIdx,
   conversationId,
-  isInReport,
+  updatedFields,
 }: {
   messageId: string;
   partIdx: number;
   conversationId: string;
-  isInReport: boolean;
+  updatedFields: Partial<PartMetadata>;
 }) {
   await verifySession();
   const PK = `CONVERSATION#${conversationId}`;
   const SK = messageId;
 
-  // Update the isInReport attribute of the specific part in the parts array
+  // Dynamically build UpdateExpression and ExpressionAttributeValues for all fields in updatedFields
+  const setExpressions: string[] = [];
+  const expressionAttributeValues: Record<
+    string,
+    PartMetadata[keyof PartMetadata]
+  > = {};
+
+  for (const [key, value] of Object.entries(updatedFields)) {
+    if (value == undefined) continue;
+    setExpressions.push(`parts[${partIdx}].${key} = :${key}`);
+    expressionAttributeValues[`:${key}`] = value;
+  }
+
   await dynamodbClient.send(
     new UpdateCommand({
       TableName: chatTable,
       Key: { PK, SK },
-      UpdateExpression: `SET parts[${partIdx}].isInReport = :isInReport`,
-      ExpressionAttributeValues: {
-        ":isInReport": isInReport,
-      },
+      UpdateExpression: `SET ${setExpressions.join(", ")}`,
+      ExpressionAttributeValues: expressionAttributeValues,
     }),
   );
 
   return;
 }
 
+type PartMetadata = {
+  isInReport?: boolean;
+  threshold?: number;
+};
 export type SavedMessage = Omit<UIMessage, "parts"> & {
   PK: string;
   SK: string;
   type: "text" | "figure";
-  parts: (UIMessage["parts"][number] & { isInReport?: boolean })[];
+  parts: (UIMessage["parts"][number] & PartMetadata)[];
 };
 
 export type CreateMessage = Omit<SavedMessage, "PK" | "SK">;

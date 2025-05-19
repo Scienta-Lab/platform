@@ -1,32 +1,62 @@
 "use client";
 
 import * as d3 from "d3";
-import { HTMLAttributes, useEffect, useMemo, useRef } from "react";
+import { HTMLAttributes, useEffect, useMemo, useRef, useState } from "react";
+
+import { Slider } from "./ui/slider";
+import { useDebounce } from "@uidotdev/usehooks";
 
 // Vibe coded by GPT-4.1 starting from:
 // https://observablehq.com/@d3/force-directed-graph/2
 type ForceGraphProps = HTMLAttributes<HTMLDivElement> & {
   nodes: GeneNode[];
   links: GeneEdge[];
+  defaultThreshold?: number;
+  onTresholdSet: (threshold: number) => void;
 };
 
-export const StaticForceGraph = ({
+export function ForceGraph({
   nodes,
   links,
+  defaultThreshold = 0.5,
+  onTresholdSet,
   ...props
-}: ForceGraphProps) => {
-  const { nodes: staticNodes, links: staticLinks } = useMemo(
-    () => ({ nodes, links }),
-    [],
-  );
-  return <ForceGraph nodes={staticNodes} links={staticLinks} {...props} />;
-};
-
-export function ForceGraph({ nodes, links, ...props }: ForceGraphProps) {
+}: ForceGraphProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const gRef = useRef<SVGGElement | null>(null);
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+  const [threshold, setThreshold] = useState(defaultThreshold);
+  const debouncedThreshold = useDebounce(threshold, 200);
+
+  useEffect(() => {
+    setThreshold(defaultThreshold);
+  }, [defaultThreshold]);
+
+  // Filter links based on debounced threshold
+  const filteredLinks = useMemo(
+    () => links.filter((l) => Math.abs(l.value) >= debouncedThreshold),
+    [links, debouncedThreshold],
+  );
+
+  // Filter nodes to only those that are connected by filteredLinks
+  const filteredNodeIds = useMemo(() => {
+    const nodeSet = new Set<string>();
+    filteredLinks.forEach((l) => {
+      if (typeof l.source === "string") nodeSet.add(l.source);
+      else if (l.source && typeof l.source === "object" && "id" in l.source)
+        nodeSet.add(l.source.id);
+      if (typeof l.target === "string") nodeSet.add(l.target);
+      else if (l.target && typeof l.target === "object" && "id" in l.target)
+        nodeSet.add(l.target.id);
+    });
+    return nodeSet;
+  }, [filteredLinks]);
+
+  const filteredNodes = useMemo(
+    () => nodes.filter((n) => filteredNodeIds.has(n.id)),
+    [nodes, filteredNodeIds],
+  );
 
   useEffect(() => {
     if (!ref.current) return;
@@ -41,8 +71,8 @@ export function ForceGraph({ nodes, links, ...props }: ForceGraphProps) {
 
     // The force simulation mutates links and nodes, so create a copy
     // so that re-evaluating this cell produces the same result.
-    const simLinks: GeneEdge[] = links.map((d) => ({ ...d }));
-    const simNodes: GeneNode[] = nodes.map((d) => ({ ...d }));
+    const simLinks: GeneEdge[] = filteredLinks.map((d) => ({ ...d }));
+    const simNodes: GeneNode[] = filteredNodes.map((d) => ({ ...d }));
 
     // Create a simulation with several forces.
     const simulation = d3
@@ -120,6 +150,7 @@ export function ForceGraph({ nodes, links, ...props }: ForceGraphProps) {
       .join("text")
       .text((d) => d.id)
       .attr("font-size", 14)
+      .attr("font-weight", "bold")
       .attr("dx", 8)
       .attr("dy", 4)
       .attr("fill", "#333");
@@ -196,7 +227,7 @@ export function ForceGraph({ nodes, links, ...props }: ForceGraphProps) {
     return () => {
       simulation.stop();
     };
-  }, [nodes, links]);
+  }, [filteredNodes, filteredLinks]);
 
   // Handler to reset zoom/pan
   const handleReset = () => {
@@ -214,13 +245,27 @@ export function ForceGraph({ nodes, links, ...props }: ForceGraphProps) {
         ref={ref}
         className="flex h-full w-full items-center justify-center"
       />
-      <button
-        onClick={handleReset}
-        className="text-tiny z-10 m-4 cursor-pointer place-self-end rounded border border-gray-300 bg-white px-3 py-1.5 font-medium shadow-md transition hover:bg-gray-50"
-        type="button"
-      >
-        Reset Position
-      </button>
+      <div className="z-10 m-4 flex items-center gap-2 place-self-end">
+        <label htmlFor="weight-threshold" className="text-xs font-medium">
+          Edge weight ≥ {threshold.toFixed(2)}
+        </label>
+        <Slider
+          min={0}
+          max={1}
+          step={0.01}
+          value={[threshold]}
+          onValueChange={(values) => setThreshold(values[0])}
+          onPointerUp={() => onTresholdSet(threshold)}
+          className="accent-primary w-32 bg-white"
+        />
+        <button
+          onClick={handleReset}
+          className="text-tiny cursor-pointer rounded border border-gray-300 bg-white px-3 py-1.5 font-medium shadow-md transition hover:bg-gray-50"
+          type="button"
+        >
+          Reset Position
+        </button>
+      </div>
     </div>
   );
 }

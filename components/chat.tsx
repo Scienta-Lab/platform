@@ -14,7 +14,7 @@ import {
   LucideSend,
   LucideTrash2,
 } from "lucide-react";
-import React, { useMemo } from "react";
+import React, { useMemo, useCallback } from "react";
 import { v4 as uuid } from "uuid";
 
 import {
@@ -22,7 +22,7 @@ import {
   SavedMessage,
   updateMessage,
 } from "@/app/actions/chat";
-import { GeneEdge, GeneNode, StaticForceGraph } from "@/components/force-graph";
+import { GeneEdge, GeneNode, ForceGraph } from "@/components/force-graph";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MarkdownTextMessage, TextMessage } from "@/components/ui/message";
@@ -86,7 +86,12 @@ export default function Chat({
 
   // We override the type because we know that the messages are of type SavedMessage
   // as we save each message and then setMessages from the onFinish callback
-  const savedMessages = messages as SavedMessage[];
+  const savedMessages = useMemo(() => messages as SavedMessage[], [messages]);
+  const stableSetMessages = useCallback(
+    (messages: React.SetStateAction<SavedMessage[]>) =>
+      setMessages(messages as React.SetStateAction<Message[]>),
+    [setMessages],
+  );
   const hasMessages = savedMessages.length > 0;
 
   const handleSubmit: UseChatHelpers["handleSubmit"] = async (e) => {
@@ -125,9 +130,7 @@ export default function Chat({
                   key={msg.id}
                   message={msg}
                   conversationId={conversationId}
-                  setMessages={(messages) =>
-                    setMessages(messages as React.SetStateAction<Message[]>)
-                  }
+                  setMessages={stableSetMessages}
                 />
               ))}
               {status === "submitted" ? (
@@ -205,9 +208,7 @@ export default function Chat({
                     message={msg}
                     type="report"
                     conversationId={conversationId}
-                    setMessages={(messages) =>
-                      setMessages(messages as React.SetStateAction<Message[]>)
-                    }
+                    setMessages={stableSetMessages}
                   />
                 ))}
           </div>
@@ -217,7 +218,8 @@ export default function Chat({
   );
 }
 
-const ChatMessage = ({
+// Memoize ChatMessage to avoid unnecessary rerenders
+const ChatMessage = React.memo(function ChatMessage({
   conversationId,
   message,
   type = "default",
@@ -227,13 +229,13 @@ const ChatMessage = ({
   message: SavedMessage;
   type?: "default" | "report";
   setMessages: React.Dispatch<React.SetStateAction<SavedMessage[]>>;
-}) => {
+}) {
   const addToReport = async (messageId: string, partIdx: number) => {
     await updateMessage({
       messageId,
       partIdx,
       conversationId,
-      isInReport: true,
+      updatedFields: { isInReport: true },
     });
     setMessages((prev) => [
       ...prev.map((msg) => {
@@ -255,7 +257,7 @@ const ChatMessage = ({
       messageId,
       partIdx,
       conversationId,
-      isInReport: false,
+      updatedFields: { isInReport: false },
     });
     setMessages((prev) => [
       ...prev.map((msg) => {
@@ -264,6 +266,32 @@ const ChatMessage = ({
           newParts[partIdx] = {
             ...newParts[partIdx],
             isInReport: false,
+          };
+          return { ...msg, parts: newParts };
+        }
+        return msg;
+      }),
+    ]);
+  };
+
+  const updateThreshold = async (
+    messageId: string,
+    partIdx: number,
+    threshold: number,
+  ) => {
+    await updateMessage({
+      messageId,
+      partIdx,
+      conversationId,
+      updatedFields: { threshold },
+    });
+    setMessages((prev) => [
+      ...prev.map((msg) => {
+        if (msg.id === messageId) {
+          const newParts = [...msg.parts];
+          newParts[partIdx] = {
+            ...newParts[partIdx],
+            threshold,
           };
           return { ...msg, parts: newParts };
         }
@@ -359,7 +387,11 @@ const ChatMessage = ({
               : undefined
           }
         >
-          <StaticForceGraph
+          <ForceGraph
+            defaultThreshold={part.threshold}
+            onTresholdSet={(threshold) =>
+              updateThreshold(message.id, idx, threshold)
+            }
             nodes={
               nodes.map((n: number, idx: number) => ({
                 id: n,
@@ -452,7 +484,7 @@ const ChatMessage = ({
       </TextMessageActions>
     );
   });
-};
+});
 
 const TextMessageActions = ({
   children,
