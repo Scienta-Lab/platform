@@ -42,3 +42,10 @@ experimental_taintUniqueValue(
   process.env.AWS_COGNITO_USER_POOL_ID!,
 );
 export const AWS_COGNITO_USER_POOL_ID = process.env.AWS_COGNITO_USER_POOL_ID!;
+
+experimental_taintUniqueValue(
+  message("PLATFORM_API_KEY"),
+  process,
+  process.env.PLATFORM_API_KEY!,
+);
+export const PLATFORM_API_KEY = process.env.PLATFORM_API_KEY!;

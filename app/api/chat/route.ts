@@ -10,6 +10,7 @@ import { v4 as uuid } from "uuid";
 
 import { saveMessage, startConversation } from "@/app/actions/chat";
 import { verifySession } from "@/lib/dal";
+import { PLATFORM_API_KEY } from "@/lib/taintedEnvVar";
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -52,6 +53,9 @@ export async function POST(req: Request) {
     transport: {
       type: "sse",
       url: "https://platform-mcp-452652483423.europe-west4.run.app/sse",
+      headers: {
+        Authorization: `Bearer ${PLATFORM_API_KEY}`,
+      },
     },
   });
 
