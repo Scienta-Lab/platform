@@ -96,8 +96,10 @@ export async function POST(req: Request) {
   });
 
   return result.toDataStreamResponse({
-    getErrorMessage:
-      process.env.NODE_ENV === "development" ? errorHandler : undefined,
+    getErrorMessage: errorHandler,
+    // TODO: for now we want to display all errors, even in production
+    // but at some point we will want to hide them
+    // process.env.NODE_ENV === "development" ? errorHandler : undefined,
   });
 }
 
