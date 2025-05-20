@@ -12,6 +12,7 @@ import {
   LucideBox,
   LucideInbox,
   LucideLoader2,
+  LucideRotateCcw,
   LucideSend,
   LucideTrash2,
 } from "lucide-react";
@@ -75,6 +76,8 @@ export default function Chat({
     append,
     setInput,
     status,
+    error,
+    reload,
   } = useChat({
     id: conversationId,
     maxSteps: 5,
@@ -127,7 +130,7 @@ export default function Chat({
     console.log("Saving report...");
   };
 
-  console.log({ messages });
+  console.log({ messages }, status, error);
 
   return (
     <ResizablePanelGroup className="h-full" direction="horizontal">
@@ -152,6 +155,12 @@ export default function Chat({
                 <div className="mt-3 ml-2 flex items-center gap-5">
                   <div className="bg-primary size-3.5 animate-pulse rounded-full"></div>
                 </div>
+              ) : null}
+              {status === "error" ? (
+                <ErrorMessage onRetry={reload}>
+                  {error?.message ??
+                    "An error occurred while processing your request."}
+                </ErrorMessage>
               ) : null}
             </div>
           )}
@@ -687,6 +696,8 @@ const parseToolInvocationResult = <T,>(
     if (toolInvocation.result.isError)
       return new Error(toolInvocation.result.content[0].text);
     const parsedResult = JSON.parse(toolInvocation.result.content[0].text);
+    // Some tools return an error in the result, so we need to check for that
+    if (parsedResult.error) throw new Error(parsedResult.error);
     return parsedResult;
   } catch (error) {
     if (error instanceof Error) {
@@ -698,7 +709,13 @@ const parseToolInvocationResult = <T,>(
   }
 };
 
-const ErrorMessage = ({ children }: { children: React.ReactNode }) => {
+const ErrorMessage = ({
+  children,
+  onRetry,
+}: {
+  children: React.ReactNode;
+  onRetry?: () => void;
+}) => {
   return (
     <div
       className="max-w-prose rounded-lg border-l-4 border-red-500 bg-red-100 p-4 text-xs text-red-700"
@@ -706,6 +723,15 @@ const ErrorMessage = ({ children }: { children: React.ReactNode }) => {
     >
       <p className="font-black">Error</p>
       <p>{children}</p>
+      {onRetry ? (
+        <button
+          onClick={onRetry}
+          className="mt-1 ml-auto block text-xs font-bold text-red-700"
+        >
+          Retry
+          <LucideRotateCcw className="ml-2 inline-block size-4" />
+        </button>
+      ) : null}
     </div>
   );
 };
