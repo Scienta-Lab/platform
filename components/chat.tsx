@@ -130,7 +130,7 @@ export default function Chat({
     console.log("Saving report...");
   };
 
-  console.log({ messages }, status, error);
+  console.log({ messages, status, conversationId, error });
 
   return (
     <ResizablePanelGroup className="h-full" direction="horizontal">
@@ -223,24 +223,30 @@ export default function Chat({
             </Button>
           </div>
           <div className="mt-6 flex flex-col gap-4">
-            <div className="flex flex-wrap gap-4 text-sm">
-              <span className="flex items-center gap-1.5">
-                <p>Diseases:</p>
-                <span className="flex gap-1">
-                  {metadata.diseases.map((d) => (
-                    <Tag key={d}>{d}</Tag>
-                  ))}
-                </span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <p>Samples:</p>
-                <span className="flex gap-1">
-                  {metadata.samples.map((s) => (
-                    <Tag key={s}>{s}</Tag>
-                  ))}
-                </span>
-              </span>
-            </div>
+            {metadata.diseases.length > 0 || metadata.samples.length > 0 ? (
+              <div className="flex flex-wrap gap-4 text-sm">
+                {metadata.diseases.length > 0 ? (
+                  <span className="flex items-center gap-1.5">
+                    <p>Diseases:</p>
+                    <span className="flex gap-1">
+                      {metadata.diseases.map((d) => (
+                        <Tag key={d}>{d}</Tag>
+                      ))}
+                    </span>
+                  </span>
+                ) : null}
+                {metadata.samples.length > 0 ? (
+                  <span className="flex items-center gap-1.5">
+                    <p>Samples:</p>
+                    <span className="flex gap-1">
+                      {metadata.samples.map((s) => (
+                        <Tag key={s}>{s}</Tag>
+                      ))}
+                    </span>
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             <h1 className="max-w-prose text-lg">{conversation?.title}</h1>
             {savedMessages.length === 0 || !conversationId
               ? null

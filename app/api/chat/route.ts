@@ -64,7 +64,7 @@ export async function POST(req: Request) {
   const result = streamText({
     model: anthropic("claude-3-7-sonnet-20250219"),
     maxRetries: 1,
-    maxSteps: 1,
+    maxSteps: 5,
     abortSignal: AbortSignal.timeout(1000 * 60 * 2), // 2 minutes
     experimental_generateMessageId: () =>
       `MESSAGE#${new Date().toISOString()}#${uuid()}`,
