@@ -18,9 +18,10 @@ export const maxDuration = 30;
 export async function POST(req: Request) {
   await verifySession();
 
-  const { messages, id } = (await req.json()) as {
+  const { messages, id, metadata } = (await req.json()) as {
     messages: UIMessage[];
     id: string;
+    metadata: { diseases: string[]; samples: string[] } | undefined;
   };
 
   let conversation;
@@ -30,6 +31,7 @@ export async function POST(req: Request) {
         message: messages[0],
       }),
       id,
+      metadata,
     });
   }
 
@@ -67,8 +69,7 @@ export async function POST(req: Request) {
       `MESSAGE#${new Date().toISOString()}#${uuid()}`,
     messages: updatedMessages,
     tools: await mcpClient.tools(),
-    system:
-      "When you call tools, their result will be automatically displayed to the user. Do not repeat them to the user. Instead, assert that you successfully called the tool and give a bit of context if needed.",
+    system: `You are a immunologist agent in charge of leveraging tools at your disposal to solve biology and immunology questions and help develop new treatments in immunology & inflammation.${conversation?.metadata?.diseases && conversation.metadata.samples ? ` You are particularly interested in the following diseases: ${conversation.metadata.diseases.join(", ")} and tissues ${conversation.metadata.samples.join(", ")}, so use tools with the corresponding arguments.` : ""} When you call tools, their result will be automatically displayed to the user. Do not repeat them to the user. Instead, assert that you successfully called the tool and give a bit of context if needed.`,
     onFinish: async ({ response }) => {
       await mcpClient.close();
 

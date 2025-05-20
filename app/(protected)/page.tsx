@@ -1,28 +1,20 @@
 import { LucideDownload, LucideEye } from "lucide-react";
 import Image from "next/image";
-import Link from "next/link";
 
 import { AppHeader } from "@/components/app-header";
+import { SelectDomainCard } from "@/components/select-domain-card";
 import { Button, DownloadButton } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { MultiSelect } from "@/components/ui/multi-select";
 import { Tag } from "@/components/ui/tag";
 
 import heroBanner from "@/public/hero-banner.png";
 
+export type Domain = (typeof domains)[number];
 const domains = [
   {
     title: "Rheumatology",
@@ -131,39 +123,7 @@ export default function Home() {
 
           <div className="mt-[115px] flex h-full justify-around gap-6 px-10">
             {domains.map((domain) => (
-              <Card
-                key={domain.title}
-                className="flex h-98 w-55 flex-col justify-between bg-white shadow-2xl"
-              >
-                <CardHeader className="space-y-2 px-4">
-                  <CardTitle className="text-base">{domain.title}</CardTitle>
-                  <CardDescription className="text-xs">
-                    {domain.description}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-4 px-4">
-                  <MultiSelect
-                    name="Samples"
-                    options={domain.samples}
-                    placeholder="Choose a sample"
-                  />
-                  <MultiSelect
-                    name="Diseases"
-                    options={domain.diseases}
-                    placeholder="Choose a disease"
-                  />
-                </CardContent>
-                <CardFooter className="px-4">
-                  <Link href="/chat" className="contents">
-                    <Button
-                      className="bg-primary hover:bg-primary/90 w-full font-bold"
-                      disabled={domain.button.disabled}
-                    >
-                      {domain.button.text}
-                    </Button>
-                  </Link>
-                </CardFooter>
-              </Card>
+              <SelectDomainCard key={domain.title} {...domain} />
             ))}
           </div>
         </section>

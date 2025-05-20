@@ -15,7 +15,7 @@ import {
   LucideSend,
   LucideTrash2,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import React, { useCallback, useMemo } from "react";
 import { v4 as uuid } from "uuid";
 
@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/resizable";
 import { Article, ArticleCollapsible } from "./article";
 import { Trial, TrialCollapsible } from "./trial";
+import { Tag } from "./ui/tag";
 
 const suggestions = [
   "Can you create a gene association network for CD5, including only the 20 most co-expressed genes.",
@@ -54,6 +55,12 @@ export default function Chat({
   messages?: SavedMessage[];
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const metadata = conversation?.metadata ?? {
+    samples: searchParams.get("samples")?.split(",") ?? [],
+    diseases: searchParams.get("diseases")?.split(",") ?? [],
+  };
 
   // Chat state
   const conversationId = useMemo(
@@ -73,12 +80,15 @@ export default function Chat({
     maxSteps: 5,
     initialMessages,
     sendExtraMessageFields: true,
+    experimental_prepareRequestBody: (options) => {
+      return { ...options, metadata };
+    },
     onFinish: () => {
       // TODO: ideally we would like to refresh only if this is the first message of the
       // conversation, because we do that just to update the title in the sidebar
       router.refresh();
     },
-    // I don't like the idea of generating the id on the client side, but
+    // I don't like the idea of generating some ids on the client side, but
     // the function is offered by useChat so I guess it's ok for now
     // as I don't have a better solution
     generateId: () => `MESSAGE#${new Date().toISOString()}#${uuid()}`,
@@ -97,7 +107,11 @@ export default function Chat({
 
   const handleSubmit: UseChatHelpers["handleSubmit"] = async (e) => {
     if (window.location.pathname !== `/chat/${conversationId}`)
-      window.history.pushState({}, "", `/chat/${conversationId}`);
+      window.history.pushState(
+        {},
+        "",
+        `/chat/${conversationId}/${window.location.search}`,
+      );
 
     _useChatHandleSubmit(e);
   };
@@ -200,6 +214,24 @@ export default function Chat({
             </Button>
           </div>
           <div className="mt-6 flex flex-col gap-4">
+            <div className="flex flex-wrap gap-4 text-sm">
+              <span className="flex items-center gap-1.5">
+                <p>Diseases:</p>
+                <span className="flex gap-1">
+                  {metadata.diseases.map((d) => (
+                    <Tag key={d}>{d}</Tag>
+                  ))}
+                </span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <p>Samples:</p>
+                <span className="flex gap-1">
+                  {metadata.samples.map((s) => (
+                    <Tag key={s}>{s}</Tag>
+                  ))}
+                </span>
+              </span>
+            </div>
             <h1 className="max-w-prose text-lg">{conversation?.title}</h1>
             {savedMessages.length === 0 || !conversationId
               ? null

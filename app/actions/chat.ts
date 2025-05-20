@@ -17,9 +17,11 @@ const chatTable = "Chat";
 export async function startConversation({
   id,
   title,
+  metadata,
 }: {
   id: string;
   title?: string;
+  metadata?: { diseases: string[]; samples: string[] };
 }) {
   const user = await verifySession();
   const conversationId = id;
@@ -30,6 +32,7 @@ export async function startConversation({
     id: conversationId,
     title: title || "Untitled conversation",
     createdAt: now,
+    metadata,
   };
   await dynamodbClient.send(
     new PutCommand({ TableName: chatTable, Item: conversation }),
@@ -116,6 +119,7 @@ export type ConversationMetadata = {
   id: string;
   title: string;
   createdAt: string;
+  metadata?: { diseases: string[]; samples: string[] };
 };
 
 export async function deleteConversation(conversationId: string) {

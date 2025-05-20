@@ -16,10 +16,12 @@ export const MultiSelect = <T extends string>({
   name,
   options,
   placeholder,
+  onValueChange,
 }: {
   name: string;
   options: T[];
   placeholder: string;
+  onValueChange: (value: T[]) => void;
 }) => {
   const [selected, setSelected] = useState<T[]>([]);
 
@@ -29,11 +31,11 @@ export const MultiSelect = <T extends string>({
       // Otherwise, onValueChange will not be called when the user selected value is already selected.
       value=""
       onValueChange={(option: T) => {
-        if (selected.includes(option)) {
-          setSelected(selected.filter((item) => item !== option));
-        } else {
-          setSelected([...selected, option]);
-        }
+        const newSelected = selected.includes(option)
+          ? selected.filter((item) => item !== option)
+          : [...selected, option];
+        setSelected(newSelected);
+        onValueChange(newSelected);
       }}
     >
       <SelectTrigger className="flex h-auto w-full flex-col gap-2 overflow-hidden rounded-md border border-neutral-200 px-3 py-2 text-sm">
