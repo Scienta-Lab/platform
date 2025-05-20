@@ -6,6 +6,7 @@ import {
   useChat,
   UseChatHelpers,
 } from "@ai-sdk/react";
+import { ToolResult } from "ai";
 import {
   LucideArrowRightCircle,
   LucideBox,
@@ -14,7 +15,8 @@ import {
   LucideSend,
   LucideTrash2,
 } from "lucide-react";
-import React, { useMemo, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import React, { useCallback, useMemo } from "react";
 import { v4 as uuid } from "uuid";
 
 import {
@@ -22,7 +24,7 @@ import {
   SavedMessage,
   updateMessage,
 } from "@/app/actions/chat";
-import { GeneEdge, GeneNode, ForceGraph } from "@/components/force-graph";
+import { ForceGraph, GeneEdge, GeneNode } from "@/components/force-graph";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MarkdownTextMessage, TextMessage } from "@/components/ui/message";
@@ -36,7 +38,6 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { useRouter } from "next/navigation";
 import { Article, ArticleCollapsible } from "./article";
 import { Trial, TrialCollapsible } from "./trial";
 
@@ -328,10 +329,16 @@ const ChatMessage = React.memo(function ChatMessage({
 
     const toolName = part.toolInvocation.toolName as ToolName;
 
-    if (toolName === "enigma_generate_network") {
+    //
+    // Loading states
+    //
+    if (
+      part.toolInvocation.state === "call" ||
+      part.toolInvocation.state === "partial-call"
+    ) {
       if (
-        part.toolInvocation.state === "call" ||
-        part.toolInvocation.state === "partial-call"
+        toolName === "enigma_generate_network" ||
+        toolName === "data-analysis_generate_figure_from_dataset"
       ) {
         return (
           <div
@@ -347,33 +354,37 @@ const ChatMessage = React.memo(function ChatMessage({
           </div>
         );
       }
+    }
 
-      let nodes;
-      let edges;
-      try {
-        const { nodes: parsedNodes, edges: parsedEdges } = JSON.parse(
-          part.toolInvocation.result.content[0].text,
-        );
-        nodes = parsedNodes;
-        edges = parsedEdges;
-      } catch (error) {
-        return `${part.toolInvocation.result.content[0].text}`.includes(
-          "Error",
-        ) ? (
+    if (part.toolInvocation.state !== "result") return null;
+
+    //
+    // Result states
+    //
+
+    if (part.toolInvocation.result.isError) {
+      return (
+        <ErrorMessage key={`${message.id}-${idx}`}>
+          {part.toolInvocation.result.content[0].text}
+        </ErrorMessage>
+      );
+    }
+
+    if (toolName === "enigma_generate_network") {
+      const networkResult = parseToolInvocationResult<{
+        nodes: string[];
+        edges: { source: number; target: number; weight: number }[];
+      }>(part.toolInvocation);
+
+      if (networkResult instanceof Error) {
+        return (
           <ErrorMessage key={`${message.id}-${idx}`}>
-            {part.toolInvocation.result.content[0].text}
+            {networkResult.message}
           </ErrorMessage>
-        ) : error instanceof Error ? (
-          <ErrorMessage
-            key={`${message.id}-${idx}`}
-          >{`${error.message}. Data was: ${part.toolInvocation.result.content[0].text}`}</ErrorMessage>
-        ) : (
-          <ErrorMessage
-            key={`${message.id}-${idx}`}
-          >{`Error parsing data for ${toolName}`}</ErrorMessage>
         );
       }
 
+      const { nodes, edges } = networkResult;
       return (
         <FigureMessageActions
           key={`${message.id}-${idx}`}
@@ -393,7 +404,7 @@ const ChatMessage = React.memo(function ChatMessage({
               updateThreshold(message.id, idx, threshold)
             }
             nodes={
-              nodes.map((n: number, idx: number) => ({
+              nodes.map((n, idx) => ({
                 id: n,
                 idx,
                 group: 1,
@@ -408,16 +419,6 @@ const ChatMessage = React.memo(function ChatMessage({
             }
           />
         </FigureMessageActions>
-      );
-    }
-
-    if (part.toolInvocation.state !== "result") return null;
-
-    if (part.toolInvocation.result.isError) {
-      return (
-        <ErrorMessage key={`${message.id}-${idx}`}>
-          {part.toolInvocation.result.content[0].text}
-        </ErrorMessage>
       );
     }
 
@@ -465,6 +466,20 @@ const ChatMessage = React.memo(function ChatMessage({
       );
     }
 
+    if (toolName === "data-analysis_generate_figure_from_dataset") {
+      const { data, mimeType } = part.toolInvocation.result.content[0];
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={`${message.id}-${idx}`}
+          src={`data:${mimeType};base64,${data}`}
+          alt="Generated figure"
+          className="max-w-full rounded border border-gray-300"
+        />
+      );
+    }
+
+    // Default case for other tool invocations
     return (
       <TextMessageActions
         key={`${message.id}-${idx}`}
@@ -631,6 +646,26 @@ const PromptGalleryPopover = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
+const parseToolInvocationResult = <T,>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  toolInvocation: ToolResult<string, any, any>,
+): T | Error => {
+  try {
+    // Shouldn't be necessary, as it is check before in the flow
+    if (toolInvocation.result.isError)
+      return new Error(toolInvocation.result.content[0].text);
+    const parsedResult = JSON.parse(toolInvocation.result.content[0].text);
+    return parsedResult;
+  } catch (error) {
+    if (error instanceof Error) {
+      return error;
+    }
+    return new Error(
+      `Error parsing tool invocation result for tool ${toolInvocation.toolName}`,
+    );
+  }
+};
+
 const ErrorMessage = ({ children }: { children: React.ReactNode }) => {
   return (
     <div
@@ -653,4 +688,5 @@ type ToolName =
   | "biomcp_trial_references"
   | "biomcp_trial_searcher"
   | "biomcp_variant_details"
-  | "biomcp_variant_searcher";
+  | "biomcp_variant_searcher"
+  | "data-analysis_generate_figure_from_dataset";
