@@ -53,11 +53,15 @@ export async function saveMessage({
 }) {
   await verifySession();
   const PK = `CONVERSATION#${conversationId}`;
-  const SK = message.id; //
+  const SK = message.id;
+  // Ignores the toolInvocations field before saving to db
+  // It is deprecated and not used in the UI
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { toolInvocations, ...messageWithoutToolInvocations } = message;
   const item = {
     PK,
     SK,
-    ...message,
+    ...messageWithoutToolInvocations,
     id: SK,
   };
   await dynamodbClient.send(

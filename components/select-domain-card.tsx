@@ -26,8 +26,10 @@ export const SelectDomainCard = (domain: Domain) => {
   };
 
   const urlParams = new URLSearchParams();
-  urlParams.set("samples", selected.samples.join(","));
-  urlParams.set("diseases", selected.domains.join(","));
+  if (selected.samples.length > 0)
+    urlParams.set("samples", selected.samples.join(","));
+  if (selected.domains.length > 0)
+    urlParams.set("diseases", selected.domains.join(","));
   const url = `/chat?${urlParams.toString()}`;
 
   return (

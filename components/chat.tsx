@@ -16,8 +16,8 @@ import {
   LucideSend,
   LucideTrash2,
 } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
-import React, { useCallback, useMemo } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import React, { useCallback, useEffect, useMemo } from "react";
 import { v4 as uuid } from "uuid";
 
 import {
@@ -57,17 +57,36 @@ export default function Chat({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
 
   const metadata = conversation?.metadata ?? {
     samples: searchParams.get("samples")?.split(",") ?? [],
     diseases: searchParams.get("diseases")?.split(",") ?? [],
   };
 
+  // Try to get the conversationId from the conversation object
+  let conversationId: string | undefined = conversation?.id;
+
+  // If not found, try to get it from the URL
+  if (!conversationId) {
+    const pathParts = pathname.split("/").filter(Boolean);
+    const chatIdx = pathParts.indexOf("chat");
+    if (chatIdx !== -1 && pathParts.length > chatIdx + 1) {
+      conversationId = pathParts[chatIdx + 1];
+    }
+  }
+
+  // If still no conversationId, generate one and update the URL
+  useEffect(() => {
+    if (conversationId) return;
+    const newId = uuid();
+    router.replace(`/chat/${newId}${window.location.search}`);
+
+    // Only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Chat state
-  const conversationId = useMemo(
-    () => conversation?.id ?? uuid(),
-    [conversation],
-  );
   const {
     messages,
     input,
@@ -181,7 +200,7 @@ export default function Chat({
           <Button
             className="bg-primary hover:bg-primary/90 m-3 h-auto place-self-end rounded-full py-2 text-white shadow-none has-[>svg]:px-2"
             type="submit"
-            disabled={isLoading || !input}
+            disabled={isLoading || !input || !conversationId}
           >
             {isLoading ? (
               <LucideLoader2 className="size-4 animate-spin" />
