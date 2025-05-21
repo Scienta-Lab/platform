@@ -1,5 +1,6 @@
 import { LucideDownload, LucideEye } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 
 import { AppHeader } from "@/components/app-header";
 import { SelectDomainCard } from "@/components/select-domain-card";
@@ -121,10 +122,17 @@ export default function Home() {
             className="-z-50 h-[330px] w-full rounded-2xl object-cover opacity-70"
           />
 
-          <div className="mt-[115px] flex h-full justify-around gap-6 px-10">
-            {domains.map((domain) => (
-              <SelectDomainCard key={domain.title} {...domain} />
-            ))}
+          <div className="mt-[80px] flex flex-col gap-6 px-10">
+            <Link href="/chat" className="self-start rounded-md bg-white">
+              <Button className="bg-primary hover:bg-primary/90 font-bold">
+                Start with all diseases
+              </Button>
+            </Link>
+            <div className="flex h-full justify-between gap-6">
+              {domains.map((domain) => (
+                <SelectDomainCard key={domain.title} {...domain} />
+              ))}
+            </div>
           </div>
         </section>
 
