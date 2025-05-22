@@ -28,7 +28,11 @@ import {
 import { ForceGraph, GeneEdge, GeneNode } from "@/components/force-graph";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { MarkdownTextMessage, TextMessage } from "@/components/ui/message";
+import {
+  MarkdownTextMessage,
+  TextMessage,
+  ThinkingMessage,
+} from "@/components/ui/message";
 import {
   Popover,
   PopoverContent,
@@ -39,6 +43,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { isThinkingTool, ToolName } from "@/lib/tools";
 import { Article, ArticleCollapsible } from "./article";
 import { Trial, TrialCollapsible } from "./trial";
 import { Tag } from "./ui/tag";
@@ -420,6 +425,16 @@ const ChatMessage = React.memo(function ChatMessage({
           </div>
         );
       }
+
+      if (isThinkingTool(toolName)) {
+        return (
+          <ThinkingMessage
+            key={`${message.id}-${idx}`}
+            name={toolName}
+            isLoading
+          />
+        );
+      }
     }
 
     if (part.toolInvocation.state !== "result") return null;
@@ -542,6 +557,16 @@ const ChatMessage = React.memo(function ChatMessage({
           alt="Generated figure"
           className="max-w-full rounded border border-gray-300"
         />
+      );
+    }
+
+    if (isThinkingTool(toolName)) {
+      return (
+        <ThinkingMessage key={`${message.id}-${idx}`} name={toolName}>
+          <pre className="no-scrollbar overflow-x-auto">
+            {part.toolInvocation.result.content[0].text}
+          </pre>
+        </ThinkingMessage>
       );
     }
 
@@ -760,16 +785,3 @@ const ErrorMessage = ({
     </div>
   );
 };
-
-type ToolName =
-  | "enigma_generate_network"
-  | "biomcp_article_details"
-  | "biomcp_article_searcher"
-  | "biomcp_trial_protocol"
-  | "biomcp_trial_locations"
-  | "biomcp_trial_outcomes"
-  | "biomcp_trial_references"
-  | "biomcp_trial_searcher"
-  | "biomcp_variant_details"
-  | "biomcp_variant_searcher"
-  | "data-analysis_generate_figure_from_dataset";
