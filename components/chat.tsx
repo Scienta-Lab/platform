@@ -11,13 +11,14 @@ import {
   LucideArrowRightCircle,
   LucideBox,
   LucideInbox,
+  LucideLightbulb,
   LucideLoader2,
   LucideRotateCcw,
   LucideSend,
   LucideTrash2,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import React, { useCallback, useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { v4 as uuid } from "uuid";
 
 import {
@@ -44,11 +45,12 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { isThinkingTool, ToolName } from "@/lib/tools";
+import { cn } from "@/lib/utils";
 import { Article, ArticleCollapsible } from "./article";
 import { Trial, TrialCollapsible } from "./trial";
 import { Tag } from "./ui/tag";
 
-const suggestions = [
+const defaultSuggestions = [
   "Can you create a gene association network for CD5, including only the 20 most co-expressed genes.",
   "Can you create a gene co-expression network for CD5, CD6 and CD7.",
 ];
@@ -92,6 +94,7 @@ export default function Chat({
   }, []);
 
   // Chat state
+  const [areSuggestionsVisible, setAreSuggestionsVisible] = useState(false);
   const {
     messages,
     input,
@@ -113,6 +116,8 @@ export default function Chat({
     onFinish: () => {
       // TODO: ideally we would like to refresh only if this is the first message of the
       // conversation, because we do that just to update the title in the sidebar
+      // TODO UPDATE: actually we have to refresh at every message in order to sync db messages and client messages
+      // very not ideal
       router.refresh();
     },
     // I don't like the idea of generating some ids on the client side, but
@@ -121,6 +126,12 @@ export default function Chat({
     generateId: () => `MESSAGE#${new Date().toISOString()}#${uuid()}`,
   });
   const isLoading = status === "submitted" || status === "streaming";
+
+  useEffect(() => {
+    // After refreshing the router with router.refresh() above, we need to sync the messages
+    // with the initial messages from the server
+    setMessages(initialMessages ?? []);
+  }, [setMessages, initialMessages]);
 
   // We override the type because we know that the messages are of type SavedMessage
   // as we save each message and then setMessages from the onFinish callback
@@ -156,6 +167,7 @@ export default function Chat({
 
   console.log({ messages, status, conversationId, error });
 
+  const lastSuggestions = savedMessages.at(-1)?.suggestions;
   return (
     <ResizablePanelGroup className="h-full" direction="horizontal">
       <ResizablePanel
@@ -186,6 +198,17 @@ export default function Chat({
                     "An error occurred while processing your request."}
                 </ErrorMessage>
               ) : null}
+              {areSuggestionsVisible ? (
+                <Suggestions
+                  onClick={(message) => {
+                    append(message);
+                    setAreSuggestionsVisible(false);
+                  }}
+                  suggestions={lastSuggestions
+                    ?.slice(0, 2)
+                    .map((s) => s.content)}
+                />
+              ) : null}
             </div>
           )}
         </div>
@@ -202,6 +225,16 @@ export default function Chat({
             onKeyDown={handleKeyDown}
             rows={4}
           />
+          <Button
+            className="m-3 h-auto self-start justify-self-end rounded-full bg-yellow-600 py-1.5 text-white shadow-none hover:bg-yellow-600/90 has-[>svg]:px-1.5"
+            type="submit"
+            disabled={
+              !lastSuggestions || lastSuggestions.length === 0 || isLoading
+            }
+            onClick={() => setAreSuggestionsVisible((prev) => !prev)}
+          >
+            <LucideLightbulb className="size-5" />
+          </Button>
           <Button
             className="bg-primary hover:bg-primary/90 m-3 h-auto place-self-end rounded-full py-2 text-white shadow-none has-[>svg]:px-2"
             type="submit"
@@ -655,12 +688,21 @@ const FigureMessageActions = ({
 };
 
 const Suggestions = ({
+  suggestions = defaultSuggestions,
   onClick,
 }: {
+  suggestions?: string[];
   onClick: (message: AiSdkCreateMessage) => void;
 }) => {
+  const isUsingDefaultSuggestions = suggestions === defaultSuggestions;
   return (
-    <div className="mx-auto flex max-w-2xl flex-col items-center gap-4">
+    <div
+      className={cn(
+        "mx-auto mt-5 flex max-w-2xl flex-col items-center gap-4",
+        !isUsingDefaultSuggestions &&
+          "animate-in fade-in-30 slide-in-from-bottom-30 duration-200",
+      )}
+    >
       <p>Suggestions by Eva</p>
       <div className="flex justify-center gap-5">
         {suggestions.map((text, idx) => (

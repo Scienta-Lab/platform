@@ -2,6 +2,7 @@
 
 import { verifySession } from "@/lib/dal";
 import { dynamodbClient } from "@/lib/dynamodb";
+import { ToolName } from "@/lib/tools";
 import {
   BatchWriteCommand,
   PutCommand,
@@ -70,6 +71,9 @@ export async function saveMessage({
       Item: { ...item },
     }),
   );
+
+  revalidateTag(`conversation-${conversationId}-messages`);
+
   return item as SavedMessage;
 }
 
@@ -167,29 +171,39 @@ export async function deleteConversation(conversationId: string) {
   revalidateTag(`conversations-${user.id}`);
 }
 
-export async function getMessages(
-  conversationId?: string,
-  // Options
-  { keysOnly = false } = {},
-) {
-  await verifySession();
+export const getMessages = cache(
+  async (
+    conversationId?: string,
+    // Options
+    { keysOnly = false } = {},
+  ) => {
+    await verifySession();
 
-  if (!conversationId) return [];
+    if (!conversationId) return [];
 
-  const res = await dynamodbClient.send(
-    new QueryCommand({
-      TableName: chatTable,
-      KeyConditionExpression: "PK = :conv_pk AND begins_with(SK, :msg_prefix)",
-      ExpressionAttributeValues: {
-        ":conv_pk": `CONVERSATION#${conversationId}`,
-        ":msg_prefix": "MESSAGE#",
+    const res = await unstable_cache(
+      async () => {
+        return await dynamodbClient.send(
+          new QueryCommand({
+            TableName: chatTable,
+            KeyConditionExpression:
+              "PK = :conv_pk AND begins_with(SK, :msg_prefix)",
+            ExpressionAttributeValues: {
+              ":conv_pk": `CONVERSATION#${conversationId}`,
+              ":msg_prefix": "MESSAGE#",
+            },
+            ScanIndexForward: true,
+            ProjectionExpression: keysOnly ? "PK, SK" : undefined,
+          }),
+        );
       },
-      ScanIndexForward: true,
-      ProjectionExpression: keysOnly ? "PK, SK" : undefined,
-    }),
-  );
-  return (res.Items || []) as SavedMessage[];
-}
+      [conversationId, keysOnly ? "keysOnly" : "full"],
+      { tags: [`conversation-${conversationId}-messages`] },
+    )();
+
+    return (res.Items || []) as SavedMessage[];
+  },
+);
 
 export async function updateMessage({
   messageId,
@@ -239,6 +253,7 @@ export type SavedMessage = Omit<UIMessage, "parts"> & {
   PK: string;
   SK: string;
   type: "text" | "figure";
+  suggestions?: { toolName: ToolName; content: string }[];
   parts: (UIMessage["parts"][number] & PartMetadata)[];
 };
 
