@@ -6,7 +6,7 @@ import {
   useChat,
   UseChatHelpers,
 } from "@ai-sdk/react";
-import { ToolResult } from "ai";
+import { ToolResult, UIMessage } from "ai";
 import {
   LucideArrowRightCircle,
   LucideBox,
@@ -24,6 +24,7 @@ import { v4 as uuid } from "uuid";
 import {
   ConversationMetadata,
   SavedMessage,
+  saveMessage,
   updateMessage,
 } from "@/app/actions/chat";
 import { ForceGraph, GeneEdge, GeneNode } from "@/components/force-graph";
@@ -141,7 +142,29 @@ export default function Chat({
       setMessages(messages as React.SetStateAction<Message[]>),
     [setMessages],
   );
-  const hasMessages = savedMessages.length > 0;
+
+  useEffect(() => {
+    if (status !== "error" || !conversationId) return;
+
+    // If there is a status error, then onFinish has not been called on the server
+    // and thus the last message is not saved in the database yet
+    const lastMessage = savedMessages.at(-1) as
+      | SavedMessage
+      | UIMessage
+      | undefined;
+
+    if (!lastMessage) return;
+
+    // If the last message is already saved, we don't need to save it again
+    if ("PK" in lastMessage && lastMessage.PK !== undefined) return;
+
+    saveMessage({
+      conversationId,
+      message: lastMessage,
+    }).then(() => {
+      router.refresh();
+    });
+  }, [status, savedMessages, conversationId, router]);
 
   const handleSubmit: UseChatHelpers["handleSubmit"] = async (e) => {
     if (window.location.pathname !== `/chat/${conversationId}`)
@@ -167,6 +190,7 @@ export default function Chat({
 
   console.log({ messages, status, conversationId, error });
 
+  const hasMessages = savedMessages.length > 0;
   const lastSuggestions = savedMessages.at(-1)?.suggestions;
   return (
     <ResizablePanelGroup className="h-full" direction="horizontal">
