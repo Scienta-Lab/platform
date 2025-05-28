@@ -2,19 +2,20 @@ import { anthropic } from "@ai-sdk/anthropic";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   appendResponseMessages,
+  createDataStreamResponse,
   experimental_createMCPClient as createMCPClient,
   generateObject,
   generateText,
   streamText,
   UIMessage,
 } from "ai";
-import { v4 as uuid } from "uuid";
 import z from "zod";
 
 import { saveMessage, startConversation } from "@/app/actions/chat";
 import { verifySession } from "@/lib/dal";
 import { PLATFORM_API_KEY } from "@/lib/taintedEnvVar";
 import { toolNames } from "@/lib/tools";
+import { getMessageAnnotations } from "@/lib/chat";
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -28,87 +29,98 @@ export async function POST(req: Request) {
     metadata: { diseases: string[]; samples: string[] } | undefined;
   };
 
-  let conversation;
-  if (messages.length === 1) {
-    conversation = await startConversation({
-      title: await generateTitleFromUserMessage({
-        message: messages[0],
-      }),
-      id,
-      metadata,
-    });
-  }
-
-  const lastMessage = messages?.at(-1);
-  let savedMessage;
-  if (lastMessage && lastMessage.role === "user") {
-    savedMessage = await saveMessage({
-      conversationId: conversation?.id || id,
-      message: {
-        ...lastMessage,
-        createdAt: new Date(lastMessage.id.split("#")[1]),
-      },
-    });
-  }
-
-  const updatedMessages = (!savedMessage
-    ? messages
-    : [...messages.slice(0, -1), savedMessage]) as unknown as UIMessage[];
-
   const mcpClient = await getScientaMcpClient();
 
-  const result = streamText({
-    model: anthropic("claude-3-5-sonnet-latest"),
-    maxRetries: 1,
-    maxSteps: 5,
-    abortSignal: AbortSignal.timeout(1000 * 60 * 2), // 2 minutes
-    experimental_generateMessageId: () =>
-      `MESSAGE#${new Date().toISOString()}#${uuid()}`,
-    messages: updatedMessages,
-    tools: await mcpClient.tools(),
-    system: `You are a immunologist agent in charge of leveraging tools at your disposal to solve biology and immunology questions and help develop new treatments in immunology & inflammation.${conversation?.metadata?.diseases && conversation.metadata.samples ? ` You are particularly interested in the following diseases: ${conversation.metadata.diseases.join(", ")} and tissues ${conversation.metadata.samples.join(", ")}, so use tools with the corresponding arguments.` : ""}. When you call tools, their result will be automatically displayed to the user. Do not repeat them to the user. Instead, assert that you successfully called the tool and give a bit of context if needed. Do specifically what is asked by the user, not more. If the question is too broad or not specific enough, ask for clarification, based on the tools you have at your disposal.`,
-    onFinish: async ({ response }) => {
-      await mcpClient.close();
-
-      const newMessages = appendResponseMessages({
-        messages: messages as unknown as UIMessage[], // Have to do this because type isn't right, cf message assertion above,
-        responseMessages: response.messages,
-      });
-      const newMessage = newMessages.at(-1);
-
-      if (!newMessage) return;
-
-      // The LLM might fail to generate suggestions
-      // For example sometimes it doesn't generate an object of the right shape
-      // Thus for now we just catch the error and save an empty array
-      let suggestions;
-      try {
-        const res = await generateSuggestionsFromConversation({
-          messages: newMessages as UIMessage[],
+  // Need to wrap everything in createDataStreamResponse to access the dataStream
+  // https://ai-sdk.dev/docs/ai-sdk-ui/streaming-data#sending-custom-data-from-the-server
+  return createDataStreamResponse({
+    execute: async (dataStream) => {
+      let conversation;
+      if (messages.length === 1) {
+        conversation = await startConversation({
+          title: await generateTitleFromUserMessage({
+            message: messages[0],
+          }),
+          id,
+          metadata,
         });
-        suggestions = res.object;
-      } catch {}
+      }
 
-      await saveMessage({
-        conversationId: id,
-        // Seems that asserting to UIMessage it's legit, he is working on AI SDK
-        // https://github.com/nicoalbanese/ai-sdk-persistence-db/blob/9b90886a832c9fbe816144cd753bcf4c1958470d/app/api/chat/route.ts#L87
-        message: {
-          ...newMessage,
-          suggestions: suggestions ?? [],
-          createdAt: newMessage.createdAt
-            ? new Date(newMessage.createdAt)
-            : undefined,
-        } as UIMessage,
+      const lastMessage = messages?.at(-1);
+      let savedUserMessage: UIMessage | undefined;
+      if (lastMessage && lastMessage.role === "user") {
+        savedUserMessage = await saveMessage({
+          conversationId: conversation?.id || id,
+          message: lastMessage,
+        });
+      }
+
+      const updatedMessages = (!savedUserMessage
+        ? messages
+        : [
+            ...messages.slice(0, -1),
+            savedUserMessage,
+          ]) as unknown as UIMessage[];
+
+      const result = streamText({
+        model: anthropic("claude-3-5-haiku-latest"),
+        maxRetries: 1,
+        maxSteps: 5,
+        abortSignal: AbortSignal.timeout(1000 * 60 * 2), // 2 minutes
+        messages: updatedMessages,
+        tools: await mcpClient.tools(),
+        system: `You are a immunologist agent in charge of leveraging tools at your disposal to solve biology and immunology questions and help develop new treatments in immunology & inflammation.${conversation?.metadata?.diseases && conversation.metadata.samples ? ` You are particularly interested in the following diseases: ${conversation.metadata.diseases.join(", ")} and tissues ${conversation.metadata.samples.join(", ")}, so use tools with the corresponding arguments.` : ""}. When you call tools, their result will be automatically displayed to the user. Do not repeat them to the user. Instead, assert that you successfully called the tool and give a bit of context if needed. Do specifically what is asked by the user, not more. If the question is too broad or not specific enough, ask for clarification, based on the tools you have at your disposal.`,
+        onFinish: async ({ response }) => {
+          await mcpClient.close();
+
+          const newMessages = appendResponseMessages({
+            messages: updatedMessages as unknown as UIMessage[], // Have to do this because type isn't right, cf message assertion above,
+            responseMessages: response.messages,
+          });
+          const newMessage = newMessages.at(-1);
+
+          if (!newMessage) return;
+
+          // The LLM might fail to generate suggestions
+          // For example sometimes it doesn't generate an object of the right shape
+          // Thus for now we just catch the error and save an empty array
+          let suggestions;
+          try {
+            const res = await generateSuggestionsFromConversation({
+              messages: newMessages as UIMessage[],
+            });
+            suggestions = res.object;
+          } catch {}
+
+          // We save the message with the suggestions
+          const annotations = [{ suggestions: suggestions ?? [] }];
+          const savedAssistantMessage = await saveMessage({
+            conversationId: id,
+            // Seems that asserting to UIMessage it's legit, he is working on AI SDK
+            // https://github.com/nicoalbanese/ai-sdk-persistence-db/blob/9b90886a832c9fbe816144cd753bcf4c1958470d/app/api/chat/route.ts#L87
+            message: { ...newMessage, annotations } as UIMessage,
+          });
+
+          // We append annotations from the saved message to the message we are streaming back
+          dataStream.writeMessageAnnotation({
+            ...getMessageAnnotations(savedAssistantMessage),
+          });
+
+          // We send annotations from the last user message through the data stream
+          dataStream.writeData(
+            JSON.parse(
+              JSON.stringify({
+                lastSavedUserMessage: savedUserMessage,
+                isFirstResponse: newMessages.length === 2,
+              }),
+            ),
+          );
+        },
       });
-    },
-  });
 
-  return result.toDataStreamResponse({
-    getErrorMessage: errorHandler,
-    // TODO: for now we want to display all errors, even in production
-    // but at some point we will want to hide them
-    // process.env.NODE_ENV === "development" ? errorHandler : undefined,
+      result.mergeIntoDataStream(dataStream);
+    },
+    onError: errorHandler,
   });
 }
 

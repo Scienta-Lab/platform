@@ -14,6 +14,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { redirect, useRouter } from "next/navigation";
 import { ComponentProps, useTransition } from "react";
+import { v4 as uuid } from "uuid";
 
 import { ConversationMetadata, deleteConversation } from "@/app/actions/chat";
 import {
@@ -73,7 +74,7 @@ export function AppSidebar({
               Wiki Scienta
             </SimpleMenuButton>
             <SimpleMenuButton
-              onClick={() => redirect("/chat")}
+              onClick={() => redirect(`/chat/${uuid()}`)}
               icon={LucidePlusCircle}
               className="text-primary font-bold"
             >

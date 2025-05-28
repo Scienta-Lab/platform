@@ -1,8 +1,8 @@
 "use server";
 
+import { getMessageAnnotations, PartMetadata } from "@/lib/chat";
 import { verifySession } from "@/lib/dal";
 import { dynamodbClient } from "@/lib/dynamodb";
-import { ToolName } from "@/lib/tools";
 import {
   BatchWriteCommand,
   PutCommand,
@@ -12,6 +12,7 @@ import {
 import { UIMessage } from "ai";
 import { revalidateTag, unstable_cache } from "next/cache";
 import { cache } from "react";
+import { v4 as uuid } from "uuid";
 
 const chatTable = "Chat";
 
@@ -54,27 +55,54 @@ export async function saveMessage({
 }) {
   await verifySession();
   const PK = `CONVERSATION#${conversationId}`;
-  const SK = message.id;
+  const SK =
+    getMessageAnnotations(message)?.dbId ||
+    `MESSAGE#${new Date().toISOString()}#${uuid()}`;
   // Ignores the toolInvocations field before saving to db
   // It is deprecated and not used in the UI
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { toolInvocations, ...messageWithoutToolInvocations } = message;
-  const item = {
+  const oldAnnotations = getMessageAnnotations(message);
+  const Item = {
     PK,
     SK,
     ...messageWithoutToolInvocations,
-    id: SK,
+    annotations: [
+      {
+        ...oldAnnotations,
+        parts: oldAnnotations?.parts ?? {},
+        createdAt: oldAnnotations?.createdAt || new Date().toISOString(),
+        dbId: SK,
+        PK,
+        SK,
+      },
+    ],
   };
-  await dynamodbClient.send(
-    new PutCommand({
-      TableName: chatTable,
-      Item: { ...item },
-    }),
-  );
+
+  try {
+    await dynamodbClient.send(
+      new PutCommand({
+        TableName: chatTable,
+        Item,
+        ConditionExpression:
+          "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+      }),
+    );
+  } catch (error) {
+    // If the item already exists, we ignore the error
+    // This can happen if there is an error when the user sent just a single message
+    // and clicked the retry button of the error component. This will lead to try to save the convesation again
+    if (
+      error instanceof Error &&
+      error.name !== "ConditionalCheckFailedException"
+    ) {
+      throw error;
+    }
+  }
 
   revalidateTag(`conversation-${conversationId}-messages`);
 
-  return item as SavedMessage;
+  return Item as UIMessage;
 }
 
 export const getConversation = cache(async (conversationId?: string) => {
@@ -201,60 +229,50 @@ export const getMessages = cache(
       { tags: [`conversation-${conversationId}-messages`] },
     )();
 
-    return (res.Items || []) as SavedMessage[];
+    return (res.Items || []) as (UIMessage & { PK: string; SK: string })[];
   },
 );
 
 export async function updateMessage({
-  messageId,
+  message,
   partIdx,
   conversationId,
   updatedFields,
 }: {
-  messageId: string;
+  message: UIMessage;
   partIdx: number;
   conversationId: string;
   updatedFields: Partial<PartMetadata>;
 }) {
   await verifySession();
   const PK = `CONVERSATION#${conversationId}`;
-  const SK = messageId;
+  const SK = getMessageAnnotations(message)?.dbId;
 
-  // Dynamically build UpdateExpression and ExpressionAttributeValues for all fields in updatedFields
-  const setExpressions: string[] = [];
-  const expressionAttributeValues: Record<
-    string,
-    PartMetadata[keyof PartMetadata]
-  > = {};
-
-  for (const [key, value] of Object.entries(updatedFields)) {
-    if (value == undefined) continue;
-    setExpressions.push(`parts[${partIdx}].${key} = :${key}`);
-    expressionAttributeValues[`:${key}`] = value;
+  if (!SK) {
+    console.log({ message });
+    throw new Error("Message does not have a valid dbId");
   }
+
+  const partKey = `part_${partIdx}`;
+  const annotations = getMessageAnnotations(message);
+  const newAnnotations = {
+    ...annotations,
+    parts: {
+      ...annotations?.parts,
+      [partKey]: { ...annotations?.parts[partKey], ...updatedFields },
+    },
+  };
 
   await dynamodbClient.send(
     new UpdateCommand({
       TableName: chatTable,
       Key: { PK, SK },
-      UpdateExpression: `SET ${setExpressions.join(", ")}`,
-      ExpressionAttributeValues: expressionAttributeValues,
+      UpdateExpression: "SET annotations = :annotations",
+      ExpressionAttributeValues: {
+        ":annotations": [newAnnotations],
+      },
     }),
   );
 
   return;
 }
-
-type PartMetadata = {
-  isInReport?: boolean;
-  threshold?: number;
-};
-export type SavedMessage = Omit<UIMessage, "parts"> & {
-  PK: string;
-  SK: string;
-  type: "text" | "figure";
-  suggestions?: { toolName: ToolName; content: string }[];
-  parts: (UIMessage["parts"][number] & PartMetadata)[];
-};
-
-export type CreateMessage = Omit<SavedMessage, "PK" | "SK">;

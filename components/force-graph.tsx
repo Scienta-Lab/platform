@@ -15,6 +15,18 @@ type ForceGraphProps = HTMLAttributes<HTMLDivElement> & {
   onTresholdSet: (threshold: number) => void;
 };
 
+export const StaticForceGraph = ({
+  nodes,
+  links,
+  ...props
+}: ForceGraphProps) => {
+  const { nodes: staticNodes, links: staticLinks } = useMemo(
+    () => ({ nodes, links }),
+    [],
+  );
+  return <ForceGraph nodes={staticNodes} links={staticLinks} {...props} />;
+};
+
 export function ForceGraph({
   nodes,
   links,
