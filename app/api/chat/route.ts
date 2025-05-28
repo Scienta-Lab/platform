@@ -1,4 +1,5 @@
 import { anthropic } from "@ai-sdk/anthropic";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   appendResponseMessages,
   experimental_createMCPClient as createMCPClient,
@@ -178,13 +179,15 @@ async function generateSuggestionsFromConversation({
   return suggestions;
 }
 
-const getScientaMcpClient = async () =>
-  await createMCPClient({
-    transport: {
-      type: "sse",
-      url: "https://platform-mcp-452652483423.europe-west4.run.app/sse",
-      headers: {
-        Authorization: `Bearer ${PLATFORM_API_KEY}`,
+const getScientaMcpClient = async () => {
+  const url = new URL("https://platform-mcp-452652483423.europe-west4.run.app");
+  return await createMCPClient({
+    transport: new StreamableHTTPClientTransport(url, {
+      requestInit: {
+        headers: {
+          Authorization: `Bearer ${PLATFORM_API_KEY}`,
+        },
       },
-    },
+    }),
   });
+};
