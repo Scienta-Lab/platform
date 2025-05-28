@@ -604,7 +604,9 @@ const ChatMessage = React.memo(function ChatMessage({
       );
     }
 
-    if (toolName === "data-analysis_generate_figure_from_dataset") {
+    if (
+      toolName === "dataset-analysis_precisesads_generate_figure_from_dataset"
+    ) {
       const { data, mimeType } = part.toolInvocation.result.content[0];
       return (
         // eslint-disable-next-line @next/next/no-img-element

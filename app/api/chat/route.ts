@@ -180,7 +180,9 @@ async function generateSuggestionsFromConversation({
 }
 
 const getScientaMcpClient = async () => {
-  const url = new URL("https://platform-mcp-452652483423.europe-west4.run.app");
+  const url = new URL(
+    "https://platform-mcp-452652483423.europe-west4.run.app/mcp/",
+  );
   return await createMCPClient({
     transport: new StreamableHTTPClientTransport(url, {
       requestInit: {

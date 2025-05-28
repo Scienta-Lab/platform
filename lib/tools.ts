@@ -19,6 +19,8 @@ export const toolNames = {
   "data-analysis_generate_figure_from_dataset": "Generate Figure from Dataset",
   "data-analysis_generate_statistics_from_dataset":
     "Generate Statistics from Dataset",
+  "dataset-analysis_precisesads_generate_figure_from_dataset":
+    "Generate Figure from PreciseSADS Dataset",
 } as const;
 
 export type ToolName = keyof typeof toolNames;
