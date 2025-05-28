@@ -58,7 +58,7 @@ export async function POST(req: Request) {
   const mcpClient = await getScientaMcpClient();
 
   const result = streamText({
-    model: anthropic("claude-3-7-sonnet-20250219"),
+    model: anthropic("claude-3-5-sonnet-latest"),
     maxRetries: 1,
     maxSteps: 5,
     abortSignal: AbortSignal.timeout(1000 * 60 * 2), // 2 minutes
