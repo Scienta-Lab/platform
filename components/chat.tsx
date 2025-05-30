@@ -210,9 +210,9 @@ export default function Chat({
             <Suggestions onClick={append} />
           ) : (
             <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 pt-4 pb-4">
-              {messages.map((msg) => (
+              {messages.map((msg, idx) => (
                 <ChatMessage
-                  key={msg.id}
+                  key={idx}
                   message={msg}
                   conversationId={conversationId}
                   setMessages={
@@ -581,16 +581,15 @@ const ChatMessage = memo(function ChatMessage({
         </TextMessage>
       );
     }
-
     if (
       toolName === "dataset-analysis_precisesads_generate_figure_from_dataset"
     ) {
-      const { data, mimeType } = part.toolInvocation.result.content[0];
+      const { src } = part.toolInvocation.result;
       return (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           key={key}
-          src={`data:${mimeType};base64,${data}`}
+          src={src}
           alt="Generated figure"
           className="max-w-full rounded border border-gray-300"
         />

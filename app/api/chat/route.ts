@@ -7,15 +7,18 @@ import {
   generateObject,
   generateText,
   streamText,
+  tool,
   UIMessage,
 } from "ai";
+import fs from "fs";
+import path from "path";
 import z from "zod";
 
 import { saveMessage, startConversation } from "@/app/actions/chat";
+import { getMessageAnnotations } from "@/lib/chat";
 import { verifySession } from "@/lib/dal";
 import { PLATFORM_API_KEY } from "@/lib/taintedEnvVar";
 import { toolNames } from "@/lib/tools";
-import { getMessageAnnotations } from "@/lib/chat";
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -30,6 +33,11 @@ export async function POST(req: Request) {
   };
 
   const mcpClient = await getScientaMcpClient();
+  const allTools = await mcpClient.tools();
+  const generateFigureTool =
+    allTools["dataset-analysis_precisesads_generate_figure_from_dataset"];
+  delete allTools["dataset-analysis_precisesads_generate_figure_from_dataset"];
+  const tools = allTools;
 
   // Need to wrap everything in createDataStreamResponse to access the dataStream
   // https://ai-sdk.dev/docs/ai-sdk-ui/streaming-data#sending-custom-data-from-the-server
@@ -68,7 +76,39 @@ export async function POST(req: Request) {
         maxSteps: 5,
         abortSignal: AbortSignal.timeout(1000 * 60 * 2), // 2 minutes
         messages: updatedMessages,
-        tools: await mcpClient.tools(),
+        tools: Object.assign(tools, {
+          "dataset-analysis_precisesads_generate_figure_from_dataset": tool({
+            ...generateFigureTool,
+            execute: async (args, options) => {
+              const result = (await generateFigureTool.execute(
+                args,
+                options,
+              )) as unknown as {
+                content: [{ mimeType: string; data: string }];
+              };
+              const { data, mimeType } = result.content[0];
+              console.log(result, data, mimeType);
+              // save image in /public/images/figures
+              const fileExtension = mimeType?.split("/")[1] || "png";
+              const imageName = `figure-${Date.now()}.${fileExtension}`;
+              const imagePath = `/images/figures/${imageName}`;
+              const imageBuffer = Buffer.from(data, "base64");
+              // Save the image to the public directory
+
+              const publicDir = path.join(
+                process.cwd(),
+                "public",
+                "images",
+                "figures",
+              );
+              if (!fs.existsSync(publicDir)) {
+                fs.mkdirSync(publicDir, { recursive: true });
+              }
+              fs.writeFileSync(path.join(publicDir, imageName), imageBuffer);
+              return { src: imagePath };
+            },
+          }),
+        }),
         system: `You are a immunologist agent in charge of leveraging tools at your disposal to solve biology and immunology questions and help develop new treatments in immunology & inflammation.${conversation?.metadata?.diseases && conversation.metadata.samples ? ` You are particularly interested in the following diseases: ${conversation.metadata.diseases.join(", ")} and tissues ${conversation.metadata.samples.join(", ")}, so use tools with the corresponding arguments.` : ""}. When you call tools, their result will be automatically displayed to the user. Do not repeat them to the user. Instead, assert that you successfully called the tool and give a bit of context if needed. Do specifically what is asked by the user, not more. If the question is too broad or not specific enough, ask for clarification, based on the tools you have at your disposal.`,
         onFinish: async ({ response }) => {
           await mcpClient.close();
