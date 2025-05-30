@@ -1,21 +1,29 @@
 import { anthropic } from "@ai-sdk/anthropic";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
+  APICallError,
   appendResponseMessages,
   createDataStreamResponse,
   experimental_createMCPClient as createMCPClient,
   generateObject,
   generateText,
   streamText,
+  tool,
   UIMessage,
 } from "ai";
 import z from "zod";
 
-import { saveMessage, startConversation } from "@/app/actions/chat";
+import {
+  prepareImageForUpload,
+  saveMessage,
+  startConversation,
+  uploadImage,
+} from "@/app/actions/chat";
+import { getMessageAnnotations } from "@/lib/chat";
 import { verifySession } from "@/lib/dal";
 import { PLATFORM_API_KEY } from "@/lib/taintedEnvVar";
 import { toolNames } from "@/lib/tools";
-import { getMessageAnnotations } from "@/lib/chat";
+import { removeUnfishedToolCalls } from "@/lib/utils";
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -29,13 +37,33 @@ export async function POST(req: Request) {
     metadata: { diseases: string[]; samples: string[] } | undefined;
   };
 
-  const mcpClient = await getScientaMcpClient();
+  const maybeMcpClient = await getScientaMcpClient();
+  if (maybeMcpClient instanceof Error) {
+    const error = maybeMcpClient;
+    // How on earth do we have to do that to get useChat to handle errors?
+    // Found no documentation on that. Full improvisation.
+    return createDataStreamResponse({
+      execute: () => {
+        throw new Error("MCP server: " + error.message);
+      },
+      onError: errorHandler,
+    });
+  }
+
+  const mcpClient = maybeMcpClient;
+  const allTools = await mcpClient.tools();
+  const generateFigureTool =
+    allTools["_precisesads_generate_figure_from_dataset"];
+  delete allTools["_precisesads_generate_figure_from_dataset"];
+  const tools = allTools;
 
   // Need to wrap everything in createDataStreamResponse to access the dataStream
   // https://ai-sdk.dev/docs/ai-sdk-ui/streaming-data#sending-custom-data-from-the-server
   return createDataStreamResponse({
     execute: async (dataStream) => {
-      let conversation;
+      let conversation:
+        | Awaited<ReturnType<typeof startConversation>>
+        | undefined;
       if (messages.length === 1) {
         conversation = await startConversation({
           title: await generateTitleFromUserMessage({
@@ -49,32 +77,58 @@ export async function POST(req: Request) {
       const lastMessage = messages?.at(-1);
       let savedUserMessage: UIMessage | undefined;
       if (lastMessage && lastMessage.role === "user") {
+        console.log("Server: Saving user message:", lastMessage);
         savedUserMessage = await saveMessage({
           conversationId: conversation?.id || id,
           message: lastMessage,
         });
       }
 
-      const updatedMessages = (!savedUserMessage
+      const updatedMessages = !savedUserMessage
         ? messages
-        : [
-            ...messages.slice(0, -1),
-            savedUserMessage,
-          ]) as unknown as UIMessage[];
+        : [...messages.slice(0, -1), savedUserMessage];
 
       const result = streamText({
-        model: anthropic("claude-3-5-haiku-latest"),
-        maxRetries: 1,
+        model: anthropic("claude-3-7-sonnet-20250219"),
+        // model: anthropic("claude-3-haiku-20240307"),
+        maxRetries: 0,
         maxSteps: 5,
         abortSignal: AbortSignal.timeout(1000 * 60 * 2), // 2 minutes
         messages: updatedMessages,
-        tools: await mcpClient.tools(),
+        tools: Object.assign(tools, {
+          _precisesads_generate_figure_from_dataset: tool({
+            ...generateFigureTool,
+            execute: async (args, options) => {
+              const result = (await generateFigureTool.execute(
+                args,
+                options,
+              )) as unknown as
+                | {
+                    isError: false;
+                    content: [{ mimeType: string; data: string }];
+                  }
+                | { isError: true; content: [{ text: string }] };
+
+              if (result.isError) throw new Error(result.content[0].text);
+              const { mimeType, data } = result.content[0];
+              const imageData = await prepareImageForUpload(data, mimeType);
+              const uploadedImage = uploadImage({
+                ...imageData,
+                conversationId: conversation?.id || id,
+              });
+              return uploadedImage;
+            },
+          }),
+        }),
         system: `You are a immunologist agent in charge of leveraging tools at your disposal to solve biology and immunology questions and help develop new treatments in immunology & inflammation.${conversation?.metadata?.diseases && conversation.metadata.samples ? ` You are particularly interested in the following diseases: ${conversation.metadata.diseases.join(", ")} and tissues ${conversation.metadata.samples.join(", ")}, so use tools with the corresponding arguments.` : ""}. When you call tools, their result will be automatically displayed to the user. Do not repeat them to the user. Instead, assert that you successfully called the tool and give a bit of context if needed. Do specifically what is asked by the user, not more. If the question is too broad or not specific enough, ask for clarification, based on the tools you have at your disposal.`,
+        onError: (error) => {
+          console.log("StreamText error:", error);
+        },
         onFinish: async ({ response }) => {
           await mcpClient.close();
 
           const newMessages = appendResponseMessages({
-            messages: updatedMessages as unknown as UIMessage[], // Have to do this because type isn't right, cf message assertion above,
+            messages: updatedMessages,
             responseMessages: response.messages,
           });
           const newMessage = newMessages.at(-1);
@@ -86,19 +140,26 @@ export async function POST(req: Request) {
           // Thus for now we just catch the error and save an empty array
           let suggestions;
           try {
-            const res = await generateSuggestionsFromConversation({
+            suggestions = await generateSuggestionsFromConversation({
               messages: newMessages as UIMessage[],
             });
-            suggestions = res.object;
           } catch {}
 
           // We save the message with the suggestions
           const annotations = [{ suggestions: suggestions ?? [] }];
+
+          console.log("Server: Saving assistant message:", {
+            ...newMessage,
+            annotations,
+          });
           const savedAssistantMessage = await saveMessage({
             conversationId: id,
-            // Seems that asserting to UIMessage it's legit, he is working on AI SDK
+            // Seems that asserting to UIMessage  legit, he is working on AI SDK
             // https://github.com/nicoalbanese/ai-sdk-persistence-db/blob/9b90886a832c9fbe816144cd753bcf4c1958470d/app/api/chat/route.ts#L87
-            message: { ...newMessage, annotations } as UIMessage,
+            message: removeUnfishedToolCalls({
+              ...newMessage,
+              annotations,
+            } as UIMessage),
           });
 
           // We append annotations from the saved message to the message we are streaming back
@@ -107,14 +168,7 @@ export async function POST(req: Request) {
           });
 
           // We send annotations from the last user message through the data stream
-          dataStream.writeData(
-            JSON.parse(
-              JSON.stringify({
-                lastSavedUserMessage: savedUserMessage,
-                isFirstResponse: newMessages.length === 2,
-              }),
-            ),
-          );
+          dataStream.writeData(JSON.parse(JSON.stringify(savedUserMessage)));
         },
       });
 
@@ -125,17 +179,16 @@ export async function POST(req: Request) {
 }
 
 function errorHandler(error: unknown) {
-  if (error == null) {
-    return "unknown error";
-  }
+  if (error == null) return "Unknown error";
 
-  if (typeof error === "string") {
-    return error;
-  }
+  if (typeof error === "string") return error;
 
-  if (error instanceof Error) {
-    return error.message;
-  }
+  // Can't return an Error object because of createDataStreamResponse onError param type.
+  // We have to send it to the client as a string and parse it there.
+  if (APICallError.isInstance(error))
+    return JSON.stringify({ type: "AI_APICallError", message: error.message });
+
+  if (error instanceof Error) return error.message;
 
   return JSON.stringify(error);
 }
@@ -148,7 +201,7 @@ async function generateTitleFromUserMessage({
   message: UIMessage;
 }) {
   const { text: title } = await generateText({
-    model: anthropic("claude-3-5-haiku-latest"),
+    model: anthropic("claude-3-5-sonnet-latest"),
     system: `\n
     - you will generate a short title based on the first message a user begins a conversation with
     - ensure it is not more than 80 characters long
@@ -167,9 +220,15 @@ async function generateSuggestionsFromConversation({
 }: {
   messages: UIMessage[];
 }) {
-  const mcpClient = await getScientaMcpClient();
+  const maybeMcpClient = await getScientaMcpClient();
+  if (maybeMcpClient instanceof Error) {
+    const error = maybeMcpClient;
+    return error;
+  }
+
+  const mcpClient = maybeMcpClient;
   const tools = await mcpClient.tools();
-  const suggestions = await generateObject({
+  const res = await generateObject({
     model: anthropic("claude-3-5-haiku-latest"),
     output: "array",
 
@@ -188,7 +247,7 @@ async function generateSuggestionsFromConversation({
     maxTokens: 120,
   });
 
-  return suggestions;
+  return res.object;
 }
 
 const getScientaMcpClient = async () => {

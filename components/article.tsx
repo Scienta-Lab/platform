@@ -11,7 +11,7 @@ export type Article = {
   pmcid: string;
   title?: string;
   journal: string;
-  authors: string[];
+  authors?: string[];
   date: string;
   doi: string;
   abstract: string;
@@ -43,7 +43,7 @@ export function ArticleCollapsible({
         <Metadata
           label="Authors"
           value={
-            article.authors.length > 0
+            article?.authors && article.authors.length > 0
               ? article.authors.join(", ")
               : "No authors listed"
           }

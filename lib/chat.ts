@@ -19,3 +19,15 @@ export type UIMessageAnnotation = {
 
 export const getMessageAnnotations = (message: UIMessage) =>
   message.annotations?.[0] as UIMessageAnnotation | undefined;
+
+export const isAPICallError = (
+  error: object | undefined,
+): error is { type: "AI_APICallError"; message: string } => {
+  return (
+    error !== undefined &&
+    "type" in error &&
+    error.type === "AI_APICallError" &&
+    "message" in error &&
+    typeof error.message === "string"
+  );
+};

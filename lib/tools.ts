@@ -1,5 +1,27 @@
 export const toolNames = {
-  enigma_generate_network: "Gene Association Network",
+  _immunatlas_get_metadata: "Get ImmunAtlas Metadata",
+  _immunatlas_get_length: "Get ImmunAtlas Length",
+  _immunatlas_get_genes_present: "ImmunAtlas Genes Present",
+  _immunatlas_get_first_genes: "Get ImmunAtlas First Genes",
+  _immunatlas_get_obs_values: "Get ImmunAtlas Obs Values",
+  _immunatlas_generate_figure_from_dataset:
+    "Generate Figure from ImmunAtlas Dataset",
+  _immunatlas_generate_statistics_from_dataset:
+    "Generate Statistics from ImmunAtlas Dataset",
+  _precisesads_get_metadata: "Get PreciseSADS Metadata",
+  _precisesads_get_length: "Get PreciseSADS Length",
+  _precisesads_get_genes_present: "PreciseSADS Genes Present",
+  _precisesads_get_first_genes: "Get PreciseSADS First Genes",
+  _precisesads_get_obs_values: "Get PreciseSADS Obs Values",
+  _precisesads_generate_figure_from_dataset:
+    "Generate Figure from PreciseSADS Dataset",
+  _precisesads_generate_statistics_from_dataset:
+    "Generate Statistics from PreciseSADS Dataset",
+  _enigma_enigma_network_generate_network: "Generate Enigma Network",
+  _enigma_gene_annotations_retrieve_gene_annotations:
+    "Retrieve Gene Annotations",
+  _enigma_gene_annotations_retrieve_go_biological_processes:
+    "Retrieve GO Biological Processes",
   biomcp_article_details: "Article Details",
   biomcp_article_searcher: "Article Search",
   biomcp_trial_protocol: "Trial Protocol",
@@ -7,20 +29,6 @@ export const toolNames = {
   biomcp_trial_outcomes: "Trial Outcomes",
   biomcp_trial_references: "Trial References",
   biomcp_trial_searcher: "Trial Search",
-  biomcp_variant_details: "Variant Details",
-  biomcp_variant_searcher: "Variant Search",
-  "data-analysis_get_immunatlas_metadata": "Get ImmunAtlas Metadata",
-  "data-analysis_get_immunatlas_vars": "Get ImmunAtlas Variables",
-  "data-analysis_get_immunatlas_length": "Get ImmunAtlas Length",
-  "data-analysis_immunatlas_genes_present": "ImmunAtlas Genes Present",
-  "data-analysis_get_immunatlas_first_genes": "Get ImmunAtlas First Genes",
-  "data-analysis_get_immunatlas_values_for_obs":
-    "Get ImmunAtlas Values for Obs",
-  "data-analysis_generate_figure_from_dataset": "Generate Figure from Dataset",
-  "data-analysis_generate_statistics_from_dataset":
-    "Generate Statistics from Dataset",
-  "dataset-analysis_precisesads_generate_figure_from_dataset":
-    "Generate Figure from PreciseSADS Dataset",
 } as const;
 
 export type ToolName = keyof typeof toolNames;
@@ -28,18 +36,16 @@ export type ToolName = keyof typeof toolNames;
 export const isThinkingTool = (
   name: ToolName,
 ): name is
-  | "data-analysis_get_immunatlas_metadata"
-  | "data-analysis_get_immunatlas_vars"
-  | "data-analysis_get_immunatlas_length"
-  | "data-analysis_immunatlas_genes_present"
-  | "data-analysis_get_immunatlas_first_genes"
-  | "data-analysis_get_immunatlas_values_for_obs" => {
+  | "_immunatlas_get_metadata"
+  | "_immunatlas_get_length"
+  | "_immunatlas_get_genes_present"
+  | "_immunatlas_get_first_genes"
+  | "_immunatlas_get_obs_values" => {
   return [
-    "data-analysis_get_immunatlas_metadata",
-    "data-analysis_get_immunatlas_vars",
-    "data-analysis_get_immunatlas_length",
-    "data-analysis_immunatlas_genes_present",
-    "data-analysis_get_immunatlas_first_genes",
-    "data-analysis_get_immunatlas_values_for_obs",
+    "_immunatlas_get_metadata",
+    "_immunatlas_get_length",
+    "_immunatlas_get_genes_present",
+    "_immunatlas_get_first_genes",
+    "_immunatlas_get_obs_values",
   ].includes(name);
 };

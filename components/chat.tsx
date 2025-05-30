@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  CreateMessage as AiSdkCreateMessage,
-  useChat,
-  UseChatHelpers,
-} from "@ai-sdk/react";
+import { useChat, UseChatHelpers } from "@ai-sdk/react";
 import { ToolResult, UIMessage } from "ai";
 import {
   LucideArrowRightCircle,
@@ -17,11 +13,13 @@ import {
   LucideTrash2,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { memo, useEffect, useState } from "react";
+import { memo, SyntheticEvent, useEffect, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
 
 import {
   ConversationMetadata,
+  getImageUrl,
+  getMessages,
   saveMessage,
   updateMessage,
 } from "@/app/actions/chat";
@@ -43,9 +41,13 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { getMessageAnnotations, PartMetadata } from "@/lib/chat";
+import {
+  getMessageAnnotations,
+  isAPICallError,
+  PartMetadata,
+} from "@/lib/chat";
 import { isThinkingTool, ToolName } from "@/lib/tools";
-import { cn } from "@/lib/utils";
+import { cn, removeUnfishedToolCalls } from "@/lib/utils";
 import { Article, ArticleCollapsible } from "./article";
 import { Trial, TrialCollapsible } from "./trial";
 import { Tag } from "./ui/tag";
@@ -87,13 +89,11 @@ export default function Chat({
   conversationId = conversationId ?? uuid();
 
   // Chat state
-  const [areSuggestionsVisible, setAreSuggestionsVisible] = useState(false);
   const {
     input,
     handleSubmit: _useChatHandleSubmit,
     messages,
     setMessages,
-    append,
     setInput,
     data,
     setData,
@@ -104,64 +104,103 @@ export default function Chat({
     id: conversationId,
     maxSteps: 5,
     initialMessages,
+    onFinish: () => {
+      // We only refresh the router to update the conversation title in the report and sidebar
+      // So we only do that after the first assistant message gets back
+      // Ideally we would do that as soon as the conversation is created
+      if (messagesRef.current && messagesRef.current.length === 2) {
+        router.refresh();
+      }
+
+      // Handles sync with additional data sent from the server
+      // This is used to update the last saved user message in the chat (in order to apply the annotations)
+      if (dataRef.current !== undefined) {
+        // Type derived from api/chat/route.ts
+        const lastSavedUserMessage = dataRef.current[0] as unknown as UIMessage;
+        const lastMessageIdx = messagesRef.current?.findLastIndex(
+          (m) => m.role === "user",
+        );
+
+        if (lastMessageIdx === undefined) return;
+
+        setMessages((prev) => {
+          const updatedMessages = [...prev];
+          updatedMessages[lastMessageIdx] = lastSavedUserMessage;
+          console.log({ updatedMessages });
+
+          return updatedMessages;
+        });
+
+        setData(undefined);
+      }
+    },
+    onError: async (error) => {
+      console.log("An error occured: ", error);
+      // In case there is an error during the first assistant message, onFinish is not called
+      // So we have to refresh the router here to update the conversation title in the report and sidebar
+      if (messagesRef.current && messagesRef.current.length === 2) {
+        router.refresh();
+      }
+
+      let apiError;
+      try {
+        apiError = JSON.parse(error.message) as object;
+      } catch {}
+
+      console.log("API error: ", apiError);
+
+      // We have to distinguish between regular errors and these ones as for
+      // regular ones, onFinish is called and thus the last message is saved even if unfinished.
+      // But with these ones, onFinish is not called and thus we have to save the last message manually
+      if (!isAPICallError(apiError) || !messagesRef.current) return;
+
+      console.log("apiError is an API call error");
+
+      // If the last message is already saved, we don't need to save it again
+      // We have to get messages like this because the last message might be saved already but the
+      // client doesn't know about it yet
+      // Ideally we wouldn't need to do that like this
+      const savedMessages = await getMessages(conversationId, {
+        keysOnly: true,
+      });
+      console.log(
+        "Saved messages: ",
+        savedMessages,
+        "messagesRef.current: ",
+        messagesRef.current,
+      );
+      if (savedMessages.length === messagesRef.current.length) return;
+
+      const lastMessage = messagesRef.current.at(-1);
+
+      console.log("Last message: ", lastMessage);
+      if (!lastMessage) return;
+
+      console.log("Saving last message following API call error", lastMessage);
+      saveMessage({
+        conversationId,
+        // Needed to avoid error: "ToolInvocation must have a result"
+        // https://github.com/vercel/ai/issues/4584
+        message: removeUnfishedToolCalls(lastMessage),
+      });
+    },
+
     experimental_prepareRequestBody: (options) => {
       return { ...options, metadata };
     },
   });
+  const [areSuggestionsVisible, setAreSuggestionsVisible] = useState(
+    messages && messages.length === 0,
+  );
+  // This is required to be able to access messages and data in the onFinish callback
+  // I don't like this approach, but it's the best solution I've found so far
+  // This allows us to get rid of useEffects, making things simpler
+  const messagesRef = useRef(initialMessages);
+  messagesRef.current = messages;
+  const dataRef = useRef(data);
+  dataRef.current = data;
+
   const isLoading = status === "submitted" || status === "streaming";
-
-  useEffect(() => {
-    // After refreshing the router with router.refresh() above, we need to sync the messages
-    // with the initial messages from the server
-    setMessages(initialMessages ?? []);
-  }, [setMessages, initialMessages]);
-
-  useEffect(() => {
-    if (status !== "error" || !conversationId) return;
-
-    // If there is a status error, then onFinish has not been called on the server
-    // and thus the last message is not saved in the database yet
-    const lastMessage = messages.at(-1) as UIMessage | undefined;
-
-    if (!lastMessage) return;
-
-    // If the last message is already saved, we don't need to save it again
-    if ("PK" in lastMessage && lastMessage.PK !== undefined) return;
-
-    saveMessage({
-      conversationId,
-      message: lastMessage,
-    });
-  }, [status, messages, router, conversationId]);
-
-  // Handles sync with additional data sent from the server
-  // This is used to update the last saved user message in the chat (in order to apply the annotations)
-  // And to refresh the page if it's the first response (in order to display the conversation title in the report and sidebar)
-  useEffect(() => {
-    if (data !== undefined) {
-      // Type derived from api/chat/route.ts
-      const { lastSavedUserMessage, isFirstResponse } = data[0] as {
-        lastSavedUserMessage?: UIMessage;
-        isFirstResponse?: boolean;
-      };
-
-      if (!lastSavedUserMessage || isFirstResponse === undefined) {
-        console.error("Invalid data received from server:", data);
-        return;
-      }
-
-      if (isFirstResponse) router.refresh();
-
-      const lastMessageIdx = messages.findLastIndex((m) => m.role === "user");
-      setMessages((prev) => {
-        const updatedMessages = [...prev];
-        if (lastMessageIdx === -1) return updatedMessages;
-        updatedMessages[lastMessageIdx] = lastSavedUserMessage;
-        return updatedMessages;
-      });
-      setData(undefined);
-    }
-  }, [data, messages, router, setMessages, setData]);
 
   const handleSubmit: UseChatHelpers["handleSubmit"] = async (e) => {
     if (window.location.pathname !== `/chat/${conversationId}`)
@@ -172,6 +211,7 @@ export default function Chat({
       );
 
     _useChatHandleSubmit(e);
+    setAreSuggestionsVisible(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -185,11 +225,9 @@ export default function Chat({
     console.log("Saving report...");
   };
 
-  const hasMessages = messages.length > 0;
   const lastMessage = messages.at(-1);
-  const lastSuggestions = lastMessage
-    ? getMessageAnnotations(lastMessage)?.suggestions
-    : [];
+  const lastSuggestions =
+    (lastMessage && getMessageAnnotations(lastMessage)?.suggestions) ?? [];
 
   console.log({
     messages,
@@ -205,83 +243,91 @@ export default function Chat({
         defaultSize={0.5}
         className="grid h-[100dvh] grid-rows-[1fr_auto] overflow-hidden bg-transparent px-4"
       >
-        <div className="no-scrollbar flex h-full flex-col-reverse overflow-x-hidden overflow-y-auto">
-          {!hasMessages || !conversationId ? (
-            <Suggestions onClick={append} />
-          ) : (
-            <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 pt-4 pb-4">
-              {messages.map((msg) => (
-                <ChatMessage
-                  key={msg.id}
-                  message={msg}
-                  conversationId={conversationId}
-                  setMessages={
-                    setMessages as React.Dispatch<
-                      React.SetStateAction<UIMessage[]>
-                    >
-                  }
-                />
-              ))}
-              {status === "submitted" ? (
-                <div className="mt-3 ml-2 flex items-center gap-5">
-                  <div className="bg-primary size-3.5 animate-pulse rounded-full"></div>
-                </div>
-              ) : null}
-              {status === "error" ? (
-                <ErrorMessage onRetry={reload}>
-                  {error?.message ??
-                    "An error occurred while processing your request."}
-                </ErrorMessage>
-              ) : null}
-              {areSuggestionsVisible ? (
-                <Suggestions
-                  onClick={(message) => {
-                    append(message);
-                    setAreSuggestionsVisible(false);
-                  }}
-                  suggestions={lastSuggestions
-                    ?.slice(0, 2)
-                    .map((s) => s.content)}
-                />
-              ) : null}
-            </div>
-          )}
+        <div className="no-scrollbar flex h-full flex-col-reverse space-y-5 overflow-x-hidden overflow-y-auto">
+          {areSuggestionsVisible && messages.length === 0 ? (
+            <Suggestions
+              onClick={(m) => {
+                setInput(m);
+                setAreSuggestionsVisible(false);
+              }}
+            />
+          ) : null}
+          <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 pt-4 pb-5">
+            {messages.map((msg, idx) => (
+              <ChatMessage
+                key={idx}
+                message={msg}
+                conversationId={conversationId}
+                setMessages={
+                  setMessages as React.Dispatch<
+                    React.SetStateAction<UIMessage[]>
+                  >
+                }
+              />
+            ))}
+            {status === "submitted" ? (
+              <div className="mt-3 ml-2 flex items-center gap-5">
+                <div className="bg-primary size-3.5 animate-pulse rounded-full"></div>
+              </div>
+            ) : null}
+            {status === "error" ? (
+              <ErrorMessage onRetry={reload}>
+                {error?.message
+                  ? parseErrorMessage(error.message)?.message
+                  : (error?.message ??
+                    "An error occurred while processing your request.")}
+              </ErrorMessage>
+            ) : null}
+            {areSuggestionsVisible && lastSuggestions?.length > 0 ? (
+              <Suggestions
+                onClick={(message) => {
+                  setInput(message);
+                  setAreSuggestionsVisible(false);
+                }}
+                suggestions={lastSuggestions?.slice(0, 2).map((s) => s.content)}
+              />
+            ) : null}
+          </div>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="stack mx-auto my-4 w-full max-w-2xl"
+          className="stack mx-auto -mt-1 mb-4 w-full max-w-2xl"
         >
           <textarea
             placeholder="Ask something to Eva"
-            className="w-full resize-none scroll-p-15 rounded-lg border border-gray-300 bg-white p-4 pb-15 text-sm"
+            className="z-10 w-full resize-none scroll-p-15 rounded-lg border border-gray-300 bg-white p-4 pb-15 text-sm"
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onPaste={(e) => setInput(e.currentTarget.value)}
             onKeyDown={handleKeyDown}
             rows={4}
           />
-          <Button
-            className="m-3 h-auto self-start justify-self-end rounded-full bg-yellow-600 py-1.5 text-white shadow-none hover:bg-yellow-600/90 has-[>svg]:px-1.5"
-            type="submit"
-            disabled={
-              !lastSuggestions || lastSuggestions.length === 0 || isLoading
-            }
-            onClick={() => setAreSuggestionsVisible((prev) => !prev)}
-          >
-            <LucideLightbulb className="size-5" />
-          </Button>
-          <Button
-            className="bg-primary hover:bg-primary/90 m-3 h-auto place-self-end rounded-full py-2 text-white shadow-none has-[>svg]:px-2"
-            type="submit"
-            disabled={isLoading || !input || !conversationId}
-          >
-            {isLoading ? (
-              <LucideLoader2 className="size-4 animate-spin" />
-            ) : (
-              <LucideSend className="size-4 -translate-x-px translate-y-px" />
-            )}
-          </Button>
-          <div className="relative m-3 flex items-center gap-2 self-end justify-self-start">
+          <div className="m-3 flex items-center gap-3 place-self-end">
+            <Button
+              className="z-20 h-auto rounded-full bg-yellow-600 py-1.5 text-white shadow-none hover:bg-yellow-600/90 has-[>svg]:px-1.5"
+              type="button"
+              disabled={
+                (lastSuggestions.length === 0 || isLoading) &&
+                !(messages.length === 0)
+              }
+              onClick={() => setAreSuggestionsVisible((prev) => !prev)}
+            >
+              <LucideLightbulb className="size-5" />
+            </Button>
+            <Button
+              className="bg-primary hover:bg-primary/90 z-20 h-auto rounded-full py-2 text-white shadow-none has-[>svg]:px-2"
+              type="submit"
+              disabled={isLoading || !input || !conversationId}
+            >
+              {isLoading ? (
+                <LucideLoader2 className="size-4 animate-spin" />
+              ) : (
+                <LucideSend className="size-4 -translate-x-px translate-y-px" />
+              )}
+            </Button>
+          </div>
+          <div className="relative z-20 m-3 flex items-center gap-2 self-end justify-self-start">
             <DataFolderPopover>
               <Button
                 size="sm"
@@ -306,15 +352,15 @@ export default function Chat({
 
       <ResizableHandle />
 
-      <ResizablePanel defaultSize={0.5}>
-        <div className="p-6">
-          <div className="mb-3 flex items-center justify-between border-b border-gray-200 pb-3">
+      <ResizablePanel defaultSize={0.5} className="h-[100dvh] overflow-hidden">
+        <div className="flex h-full flex-col overflow-hidden">
+          <div className="flex items-center justify-between border-b border-gray-200 p-6 pb-3">
             <p className="font-bold">Report</p>
             <Button className="bg-primary font-bold" onClick={saveReport}>
               Save
             </Button>
           </div>
-          <div className="mt-6 flex flex-col gap-4">
+          <div className="no-scrollbar flex flex-col gap-4 overflow-y-scroll p-6">
             {metadata.diseases.length > 0 || metadata.samples.length > 0 ? (
               <div className="flex flex-wrap gap-4 text-sm">
                 {metadata.diseases.length > 0 ? (
@@ -450,8 +496,8 @@ const ChatMessage = memo(function ChatMessage({
       part.toolInvocation.state === "partial-call"
     ) {
       if (
-        toolName === "enigma_generate_network" ||
-        toolName === "data-analysis_generate_figure_from_dataset"
+        toolName === "_enigma_enigma_network_generate_network" ||
+        toolName === "_precisesads_generate_figure_from_dataset"
       ) {
         return (
           <div
@@ -487,7 +533,7 @@ const ChatMessage = memo(function ChatMessage({
       );
     }
 
-    if (toolName === "enigma_generate_network") {
+    if (toolName === "_enigma_enigma_network_generate_network") {
       const networkResult = parseToolInvocationResult<{
         nodes: string[];
         edges: { source: number; target: number; weight: number }[];
@@ -581,20 +627,9 @@ const ChatMessage = memo(function ChatMessage({
         </TextMessage>
       );
     }
-
-    if (
-      toolName === "dataset-analysis_precisesads_generate_figure_from_dataset"
-    ) {
-      const { data, mimeType } = part.toolInvocation.result.content[0];
-      return (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          key={key}
-          src={`data:${mimeType};base64,${data}`}
-          alt="Generated figure"
-          className="max-w-full rounded border border-gray-300"
-        />
-      );
+    if (toolName === "_precisesads_generate_figure_from_dataset") {
+      const { imageKey } = part.toolInvocation.result;
+      return <ImageFigure key={key} imageKey={imageKey} />;
     }
 
     if (isThinkingTool(toolName)) {
@@ -674,7 +709,7 @@ const FigureMessageActions = ({
   buttonProps?: React.ButtonHTMLAttributes<HTMLButtonElement>;
 }) => {
   return (
-    <div className="stack h-[400px] overflow-hidden rounded-lg border border-gray-200">
+    <div className="stack aspect-video overflow-hidden rounded-lg border border-gray-200">
       {children}
       <Button
         variant="outline"
@@ -698,7 +733,7 @@ const Suggestions = ({
   onClick,
 }: {
   suggestions?: string[];
-  onClick: (message: AiSdkCreateMessage) => void;
+  onClick: (message: string) => void;
 }) => {
   const isUsingDefaultSuggestions = suggestions === defaultSuggestions;
   return (
@@ -715,13 +750,13 @@ const Suggestions = ({
           <Card
             key={idx}
             className="grid w-1/2 cursor-pointer place-items-center py-0 shadow-none"
-            onClick={() => onClick({ role: "user", content: text })}
+            onClick={() => onClick(text)}
           >
             <CardContent className="stack h-full px-0 py-0">
               <p className="p-5 text-sm">{text}</p>
               <Button
                 className="m-1 h-auto place-self-end rounded-full bg-transparent py-3 text-gray-500 shadow-none hover:bg-black/5 has-[>svg]:px-3"
-                type="submit"
+                type="button"
               >
                 <LucideSend className="size-4 -translate-x-px translate-y-px" />
               </Button>
@@ -807,6 +842,16 @@ const parseToolInvocationResult = <T,>(
   }
 };
 
+const parseErrorMessage = (error: string) => {
+  try {
+    const parsedError = JSON.parse(error);
+    if (isAPICallError(parsedError)) {
+      return new Error(parsedError.message);
+    }
+  } catch {}
+  return undefined;
+};
+
 const ErrorMessage = ({
   children,
   onRetry,
@@ -831,5 +876,81 @@ const ErrorMessage = ({
         </button>
       ) : null}
     </div>
+  );
+};
+
+// We could save the url in the message part itself in order to avoid fetching it
+// as long as it is not expired
+const ImageFigure = ({ imageKey }: { imageKey: string }) => {
+  const [url, setUrl] = useState<string>();
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string>();
+  const [retryCount, setRetryCount] = useState(0);
+
+  useEffect(() => {
+    const fetchImage = async () => {
+      try {
+        setIsLoading(true);
+        setError(undefined);
+        const res = await getImageUrl(imageKey);
+        setUrl(res.url);
+      } catch (err) {
+        if (retryCount === 0) {
+          setRetryCount(1);
+          return;
+        }
+
+        setError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchImage();
+  }, [imageKey, retryCount]);
+
+  const handleImageError = (e: SyntheticEvent<HTMLImageElement, Event>) => {
+    if (retryCount === 0) {
+      setRetryCount(1);
+      setIsLoading(true);
+    } else {
+      setError(e instanceof Error ? e.message : "Unknown error");
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="grid aspect-video place-items-center rounded border border-gray-300">
+        <div className="flex flex-col items-center justify-center">
+          <LucideLoader2 className="text-primary size-8 animate-spin" />
+          <span className="mt-4 text-sm text-gray-500">Loading image...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="grid aspect-video place-items-center rounded border border-gray-300 bg-red-50">
+        <div className="flex flex-col items-center justify-center text-center">
+          <div className="mb-2 text-4xl text-red-500">⚠️</div>
+          <span className="text-sm font-medium text-red-700">
+            Failed to load image
+          </span>
+          <span className="mt-1 text-xs text-red-600">{error}</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt="Generated figure"
+      className="aspect-video max-w-full rounded border border-gray-300 object-contain"
+      onError={handleImageError}
+    />
   );
 };

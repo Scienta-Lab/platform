@@ -3,12 +3,19 @@
 import { getMessageAnnotations, PartMetadata } from "@/lib/chat";
 import { verifySession } from "@/lib/dal";
 import { dynamodbClient } from "@/lib/dynamodb";
+import { s3Client, platformBucket } from "@/lib/s3";
 import {
   BatchWriteCommand,
   PutCommand,
   QueryCommand,
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
+import {
+  PutObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { UIMessage } from "ai";
 import { revalidateTag, unstable_cache } from "next/cache";
 import { cache } from "react";
@@ -84,8 +91,6 @@ export async function saveMessage({
       new PutCommand({
         TableName: chatTable,
         Item,
-        ConditionExpression:
-          "attribute_not_exists(PK) AND attribute_not_exists(SK)",
       }),
     );
   } catch (error) {
@@ -160,7 +165,7 @@ export type ConversationMetadata = {
 
 export async function deleteConversation(conversationId: string) {
   const user = await verifySession();
-  const messages = await getMessages(conversationId, { keysOnly: true });
+  const messages = await getMessages(conversationId);
 
   const messageDeleteRequests = messages.map((item) => ({
     DeleteRequest: {
@@ -195,6 +200,37 @@ export async function deleteConversation(conversationId: string) {
       }),
     );
   }
+
+  // Delete images from S3
+  const imageDeletionPromises = [];
+  for (const message of messages) {
+    for (const part of message.parts) {
+      // We keep only the parts that are images
+      if (
+        !(
+          part.type === "tool-invocation" &&
+          part.toolInvocation.state === "result" &&
+          part.toolInvocation.toolName ===
+            "dataset-analysis_precisesads_generate_figure_from_dataset"
+        )
+      )
+        return;
+
+      const imageKey = part.toolInvocation.result?.key;
+
+      if (imageKey) {
+        imageDeletionPromises.push(
+          deleteImage({
+            key: imageKey,
+          }),
+        );
+      }
+    }
+  }
+
+  // Wait for all image deletions to complete
+  const res = await Promise.all(imageDeletionPromises);
+  console.log({ res });
 
   revalidateTag(`conversations-${user.id}`);
 }
@@ -274,5 +310,100 @@ export async function updateMessage({
     }),
   );
 
+  revalidateTag(`conversation-${conversationId}-messages`);
+
   return;
+}
+
+export async function uploadImage({
+  file,
+  conversationId,
+  extension,
+}: {
+  file: Buffer;
+  conversationId: string;
+  extension?: string;
+}) {
+  const user = await verifySession();
+  const imageId = uuid();
+  const imageKey = `${user.id}/${conversationId}/${imageId}.${extension}`;
+
+  try {
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: platformBucket,
+        Key: imageKey,
+        Body: file,
+        Metadata: {
+          userId: user.id,
+          conversationId,
+          uploadedAt: new Date().toISOString(),
+        },
+      }),
+    );
+
+    return {
+      imageId,
+      imageKey,
+    };
+  } catch (error) {
+    console.error("Failed to upload image:", error);
+    throw new Error("Failed to upload image to S3");
+  }
+}
+
+export async function deleteImage({ key }: { key: string }) {
+  await verifySession();
+
+  try {
+    await s3Client.send(
+      new DeleteObjectCommand({
+        Bucket: platformBucket,
+        Key: key,
+      }),
+    );
+
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to delete image:", error);
+    throw new Error("Failed to delete image from S3");
+  }
+}
+
+export async function prepareImageForUpload(data: string, mimeType: string) {
+  const buffer = Buffer.from(data, "base64");
+
+  // Extract file extension from mime type
+  const extension = mimeType.includes("/")
+    ? mimeType.split("/")[1] || "png"
+    : mimeType;
+
+  return {
+    file: buffer,
+    extension,
+    mimeType,
+  };
+}
+
+export async function getImageUrl(key: string) {
+  const user = await verifySession();
+
+  // Verify user owns this image (check if key starts with their userId)
+  if (!key.startsWith(`${user.id}/`)) {
+    throw new Error("Forbidden: You don't have access to this image");
+  }
+
+  try {
+    const command = new GetObjectCommand({
+      Bucket: platformBucket,
+      Key: key,
+    });
+
+    // Generate presigned URL valid for 24 hours
+    const url = await getSignedUrl(s3Client, command, { expiresIn: 86400 });
+    return { url };
+  } catch (error) {
+    console.error("Failed to generate presigned URL:", error);
+    throw new Error("Failed to generate image URL");
+  }
 }
