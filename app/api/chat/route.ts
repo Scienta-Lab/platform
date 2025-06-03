@@ -192,6 +192,21 @@ async function generateSuggestionsFromConversation({
 }
 
 const getScientaMcpClient = async () => {
+  // TODO: delete this when it is fixed
+  // https://github.com/modelcontextprotocol/python-sdk/issues/838
+  const transportType: "sse" | "http" = "sse";
+
+  if (transportType === "sse")
+    return await createMCPClient({
+      transport: {
+        type: "sse",
+        url: "https://platform-mcp-452652483423.europe-west4.run.app/sse",
+        headers: {
+          Authorization: `Bearer ${PLATFORM_API_KEY}`,
+        },
+      },
+    });
+
   const url = new URL(
     "https://platform-mcp-452652483423.europe-west4.run.app/mcp/",
   );
