@@ -32,6 +32,7 @@ export async function startConversation({
   title?: string;
   metadata?: { diseases: string[]; samples: string[] };
 }) {
+  console.log("Starting conversation with ID:", id);
   const user = await verifySession();
   const conversationId = id;
   const now = new Date().toISOString();
@@ -47,6 +48,10 @@ export async function startConversation({
     new PutCommand({ TableName: chatTable, Item: conversation }),
   );
 
+  console.log(
+    "After Creation: Revalidating conversation tag for user:",
+    user.id,
+  );
   revalidateTag(`conversations-${user.id}`);
 
   return conversation;
@@ -105,7 +110,8 @@ export async function saveMessage({
     }
   }
 
-  revalidateTag(`conversation-${conversationId}-messages`);
+  revalidateTag(`conversation-${conversationId}-messages-full`);
+  revalidateTag(`conversation-${conversationId}-messages-keys-only`);
 
   return Item as UIMessage;
 }
@@ -127,7 +133,7 @@ export const getConversation = cache(async (conversationId?: string) => {
       );
       return (res.Items && res.Items[0]) as ConversationMetadata | undefined;
     },
-    [user.id, conversationId],
+    [`conversation-${conversationId}`],
     { tags: [`conversation-${conversationId}`] },
   )();
   return conversation;
@@ -156,7 +162,7 @@ export const getConversations = cache(async () => {
 
       return (res.Items || []) as ConversationMetadata[];
     },
-    [user.id],
+    [`conversations-${user.id}`],
     { tags: [`conversations-${user.id}`] },
   )();
 
@@ -238,9 +244,12 @@ export async function deleteConversation(conversationId: string) {
   }
 
   // Wait for all image deletions to complete
-  const res = await Promise.all(imageDeletionPromises);
-  console.log({ res });
+  await Promise.all(imageDeletionPromises);
 
+  console.log(
+    "After Deletion: Revalidating conversation tag for user:",
+    user.id,
+  );
   revalidateTag(`conversations-${user.id}`);
 }
 
@@ -270,8 +279,14 @@ export const getMessages = cache(
           }),
         );
       },
-      [conversationId, keysOnly ? "keysOnly" : "full"],
-      { tags: [`conversation-${conversationId}-messages`] },
+      [
+        `conversation-${conversationId}-messages-${keysOnly ? "keys-only" : "full"}`,
+      ],
+      {
+        tags: [
+          `conversation-${conversationId}-messages-${keysOnly ? "keys-only" : "full"}`,
+        ],
+      },
     )();
 
     return (res.Items || []) as (UIMessage & { PK: string; SK: string })[];
@@ -293,10 +308,7 @@ export async function updateMessage({
   const PK = `CONVERSATION#${conversationId}`;
   const SK = getMessageAnnotations(message)?.dbId;
 
-  if (!SK) {
-    console.log({ message });
-    throw new Error("Message does not have a valid dbId");
-  }
+  if (!SK) throw new Error("Message does not have a valid dbId");
 
   const partKey = `part_${partIdx}`;
   const annotations = getMessageAnnotations(message);
@@ -319,7 +331,7 @@ export async function updateMessage({
     }),
   );
 
-  revalidateTag(`conversation-${conversationId}-messages`);
+  revalidateTag(`conversation-${conversationId}-messages-full`);
 
   return;
 }

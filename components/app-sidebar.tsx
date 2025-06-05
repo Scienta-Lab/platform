@@ -41,6 +41,7 @@ export function AppSidebar({
   ...props
 }: ComponentProps<typeof Sidebar> & { history: ConversationMetadata[] }) {
   const user = useUser();
+  const router = useRouter();
   return (
     <Sidebar className="bg-secondary/15 border-gray-200" {...props}>
       <SidebarHeader>
@@ -93,7 +94,13 @@ export function AppSidebar({
                     href={`/chat/${conversation.id}`}
                     size="sm"
                     actionIcon={LucideTrash2}
-                    onDelete={() => deleteConversation(conversation.id)}
+                    onDelete={async () => {
+                      await deleteConversation(conversation.id);
+                      console.log(
+                        "Refreshing router after conversation deletion",
+                      );
+                      router.refresh();
+                    }}
                   >
                     <span className="truncate">{conversation.title}</span>
                   </SimpleMenuButton>
@@ -149,7 +156,7 @@ const SimpleMenuButton = ({
   size?: React.ComponentProps<typeof SidebarMenuButton>["size"];
   href?: string;
   onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
-  onDelete?: (e: React.MouseEvent<HTMLButtonElement>) => Promise<void>;
+  onDelete?: (e: React.MouseEvent<HTMLButtonElement>) => void;
 } & React.ComponentProps<typeof SidebarMenuButton>) => {
   const router = useRouter();
   const [isDeleting, startTransition] = useTransition();

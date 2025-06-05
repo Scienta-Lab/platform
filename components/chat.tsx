@@ -13,7 +13,14 @@ import {
   LucideTrash2,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { memo, SyntheticEvent, useEffect, useRef, useState } from "react";
+import {
+  memo,
+  SyntheticEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { v4 as uuid } from "uuid";
 
 import {
@@ -73,20 +80,22 @@ export default function Chat({
     diseases: searchParams.get("diseases")?.split(",") ?? [],
   };
 
-  // Try to get the conversationId from the conversation object
-  let conversationId: string | undefined = conversation?.id;
+  const conversationId = useMemo(() => {
+    // Try to get the conversationId from the conversation object
+    let id: string | undefined = conversation?.id;
 
-  // If not found, try to get it from the URL
-  if (!conversationId) {
-    const pathParts = pathname.split("/").filter(Boolean);
-    const chatIdx = pathParts.indexOf("chat");
-    if (chatIdx !== -1 && pathParts.length > chatIdx + 1) {
-      conversationId = pathParts[chatIdx + 1];
+    // If not found, try to get it from the URL
+    if (!id) {
+      const pathParts = pathname.split("/").filter(Boolean);
+      const chatIdx = pathParts.indexOf("chat");
+      if (chatIdx !== -1 && pathParts.length > chatIdx + 1) {
+        id = pathParts[chatIdx + 1];
+      }
     }
-  }
 
-  // If still no conversationId, generate one
-  conversationId = conversationId ?? uuid();
+    // If still no conversationId, generate one
+    return id ?? uuid();
+  }, [conversation?.id, pathname]);
 
   // Chat state
   const {
@@ -108,7 +117,9 @@ export default function Chat({
       // We only refresh the router to update the conversation title in the report and sidebar
       // So we only do that after the first assistant message gets back
       // Ideally we would do that as soon as the conversation is created
+      console.log({ mr: messagesRef.current?.length });
       if (messagesRef.current && messagesRef.current.length === 2) {
+        console.log("Refreshing router after first assistant message");
         router.refresh();
       }
 
@@ -126,8 +137,6 @@ export default function Chat({
         setMessages((prev) => {
           const updatedMessages = [...prev];
           updatedMessages[lastMessageIdx] = lastSavedUserMessage;
-          console.log({ updatedMessages });
-
           return updatedMessages;
         });
 
