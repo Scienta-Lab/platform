@@ -496,13 +496,13 @@ const ChatMessage = memo(function ChatMessage({
       part.toolInvocation.state === "partial-call"
     ) {
       if (
-        toolName === "_enigma_enigma_network_generate_network" ||
+        toolName === "_enigma_enigma-network_generate_network" ||
         toolName === "_precisesads_generate_figure_from_dataset"
       ) {
         return (
           <div
             key={key}
-            className="bg-secondary/10 grid h-[400px] place-items-center rounded-lg border border-gray-200"
+            className="bg-secondary/10 grid aspect-video place-items-center rounded-lg border border-gray-200"
           >
             <div className="flex flex-col items-center justify-center">
               <LucideLoader2 className="text-primary size-8 animate-spin" />
@@ -533,7 +533,7 @@ const ChatMessage = memo(function ChatMessage({
       );
     }
 
-    if (toolName === "_enigma_enigma_network_generate_network") {
+    if (toolName === "_enigma_enigma-network_generate_network") {
       const networkResult = parseToolInvocationResult<{
         nodes: string[];
         edges: { source: number; target: number; weight: number }[];

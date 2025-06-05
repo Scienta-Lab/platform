@@ -135,6 +135,9 @@ export const getConversation = cache(async (conversationId?: string) => {
 
 export const getConversations = cache(async () => {
   const user = await verifySession();
+
+  console.log("Getting conversations for user:", user.id);
+
   const conversations = await unstable_cache(
     async () => {
       const res = await dynamodbClient.send(
@@ -148,11 +151,17 @@ export const getConversations = cache(async () => {
           },
         }),
       );
+
+      console.log("Raw DynamoDB response:", res.Items);
+
       return (res.Items || []) as ConversationMetadata[];
     },
     [user.id],
     { tags: [`conversations-${user.id}`] },
   )();
+
+  console.log("Final conversations:", conversations);
+
   return conversations;
 });
 

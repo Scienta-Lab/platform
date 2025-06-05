@@ -17,10 +17,10 @@ export const toolNames = {
     "Generate Figure from PreciseSADS Dataset",
   _precisesads_generate_statistics_from_dataset:
     "Generate Statistics from PreciseSADS Dataset",
-  _enigma_enigma_network_generate_network: "Generate Enigma Network",
-  _enigma_gene_annotations_retrieve_gene_annotations:
+  "_enigma_enigma-network_generate_network": "Generate Enigma Network",
+  "_enigma_gene-annotations_retrieve_gene_annotations":
     "Retrieve Gene Annotations",
-  _enigma_gene_annotations_retrieve_go_biological_processes:
+  "_enigma_gene-annotations_retrieve_go_biological_processes":
     "Retrieve GO Biological Processes",
   biomcp_article_details: "Article Details",
   biomcp_article_searcher: "Article Search",
