@@ -18,7 +18,6 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { UIMessage } from "ai";
 import { revalidateTag, unstable_cache } from "next/cache";
-import { cache } from "react";
 import { v4 as uuid } from "uuid";
 
 const chatTable = "Chat";
@@ -116,7 +115,7 @@ export async function saveMessage({
   return Item as UIMessage;
 }
 
-export const getConversation = cache(async (conversationId?: string) => {
+export const getConversation = async (conversationId?: string) => {
   const user = await verifySession();
   if (!conversationId) return undefined;
   const conversation = await unstable_cache(
@@ -137,9 +136,9 @@ export const getConversation = cache(async (conversationId?: string) => {
     { tags: [`conversation-${conversationId}`] },
   )();
   return conversation;
-});
+};
 
-export const getConversations = cache(async () => {
+export const getConversations = async () => {
   const user = await verifySession();
 
   console.log("Getting conversations for user:", user.id);
@@ -169,7 +168,7 @@ export const getConversations = cache(async () => {
   console.log("Final conversations:", conversations);
 
   return conversations;
-});
+};
 
 export type ConversationMetadata = {
   id: string;
@@ -253,45 +252,43 @@ export async function deleteConversation(conversationId: string) {
   revalidateTag(`conversations-${user.id}`);
 }
 
-export const getMessages = cache(
-  async (
-    conversationId?: string,
-    // Options
-    { keysOnly = false } = {},
-  ) => {
-    await verifySession();
+export const getMessages = async (
+  conversationId?: string,
+  // Options
+  { keysOnly = false } = {},
+) => {
+  await verifySession();
 
-    if (!conversationId) return [];
+  if (!conversationId) return [];
 
-    const res = await unstable_cache(
-      async () => {
-        return await dynamodbClient.send(
-          new QueryCommand({
-            TableName: chatTable,
-            KeyConditionExpression:
-              "PK = :conv_pk AND begins_with(SK, :msg_prefix)",
-            ExpressionAttributeValues: {
-              ":conv_pk": `CONVERSATION#${conversationId}`,
-              ":msg_prefix": "MESSAGE#",
-            },
-            ScanIndexForward: true,
-            ProjectionExpression: keysOnly ? "PK, SK" : undefined,
-          }),
-        );
-      },
-      [
+  const res = await unstable_cache(
+    async () => {
+      return await dynamodbClient.send(
+        new QueryCommand({
+          TableName: chatTable,
+          KeyConditionExpression:
+            "PK = :conv_pk AND begins_with(SK, :msg_prefix)",
+          ExpressionAttributeValues: {
+            ":conv_pk": `CONVERSATION#${conversationId}`,
+            ":msg_prefix": "MESSAGE#",
+          },
+          ScanIndexForward: true,
+          ProjectionExpression: keysOnly ? "PK, SK" : undefined,
+        }),
+      );
+    },
+    [
+      `conversation-${conversationId}-messages-${keysOnly ? "keys-only" : "full"}`,
+    ],
+    {
+      tags: [
         `conversation-${conversationId}-messages-${keysOnly ? "keys-only" : "full"}`,
       ],
-      {
-        tags: [
-          `conversation-${conversationId}-messages-${keysOnly ? "keys-only" : "full"}`,
-        ],
-      },
-    )();
+    },
+  )();
 
-    return (res.Items || []) as (UIMessage & { PK: string; SK: string })[];
-  },
-);
+  return (res.Items || []) as (UIMessage & { PK: string; SK: string })[];
+};
 
 export async function updateMessage({
   message,
