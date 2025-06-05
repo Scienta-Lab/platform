@@ -17,7 +17,6 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { UIMessage } from "ai";
-import { revalidateTag, unstable_cache } from "next/cache";
 import { v4 as uuid } from "uuid";
 
 const chatTable = "Chat";
@@ -31,7 +30,6 @@ export async function startConversation({
   title?: string;
   metadata?: { diseases: string[]; samples: string[] };
 }) {
-  console.log("Starting conversation with ID:", id);
   const user = await verifySession();
   const conversationId = id;
   const now = new Date().toISOString();
@@ -46,17 +44,6 @@ export async function startConversation({
   await dynamodbClient.send(
     new PutCommand({ TableName: chatTable, Item: conversation }),
   );
-
-  console.log(
-    "After Creation: Revalidating conversation tag for user:",
-    user.id,
-  );
-  console.log("Revalidating tag:", `conversations-${user.id}`);
-
-  // Try both tag and path revalidation
-  revalidateTag(`conversations-${user.id}`);
-
-  console.log("Tag revalidation completed");
 
   return conversation;
 }
@@ -114,68 +101,42 @@ export async function saveMessage({
     }
   }
 
-  revalidateTag(`conversation-${conversationId}-messages-full`);
-  revalidateTag(`conversation-${conversationId}-messages-keys-only`);
-
   return Item as UIMessage;
 }
 
 export const getConversation = async (conversationId?: string) => {
   const user = await verifySession();
   if (!conversationId) return undefined;
-  const conversation = await unstable_cache(
-    async () => {
-      const res = await dynamodbClient.send(
-        new QueryCommand({
-          TableName: chatTable,
-          KeyConditionExpression: "PK = :user_pk AND SK = :conv_sk",
-          ExpressionAttributeValues: {
-            ":user_pk": `USER#${user.id}`,
-            ":conv_sk": `CONVERSATION#${conversationId}`,
-          },
-        }),
-      );
-      return (res.Items && res.Items[0]) as ConversationMetadata | undefined;
-    },
-    [`conversation-${conversationId}`],
-    { tags: [`conversation-${conversationId}`] },
-  )();
-  return conversation;
+
+  const res = await dynamodbClient.send(
+    new QueryCommand({
+      TableName: chatTable,
+      KeyConditionExpression: "PK = :user_pk AND SK = :conv_sk",
+      ExpressionAttributeValues: {
+        ":user_pk": `USER#${user.id}`,
+        ":conv_sk": `CONVERSATION#${conversationId}`,
+      },
+    }),
+  );
+
+  return (res.Items && res.Items[0]) as ConversationMetadata | undefined;
 };
 
 export const getConversations = async () => {
   const user = await verifySession();
 
-  console.log("Getting conversations for user:", user.id);
-  console.log("Cache key will be:", `conversations-${user.id}`);
-  console.log("Cache tag will be:", `conversations-${user.id}`);
+  const res = await dynamodbClient.send(
+    new QueryCommand({
+      TableName: chatTable,
+      KeyConditionExpression: "PK = :user_pk AND begins_with(SK, :conv_prefix)",
+      ExpressionAttributeValues: {
+        ":user_pk": `USER#${user.id}`,
+        ":conv_prefix": "CONVERSATION#",
+      },
+    }),
+  );
 
-  const conversations = await unstable_cache(
-    async () => {
-      console.log("CACHE MISS: Executing DynamoDB query for conversations");
-      const res = await dynamodbClient.send(
-        new QueryCommand({
-          TableName: chatTable,
-          KeyConditionExpression:
-            "PK = :user_pk AND begins_with(SK, :conv_prefix)",
-          ExpressionAttributeValues: {
-            ":user_pk": `USER#${user.id}`,
-            ":conv_prefix": "CONVERSATION#",
-          },
-        }),
-      );
-
-      console.log("Raw DynamoDB response:", res.Items);
-
-      return (res.Items || []) as ConversationMetadata[];
-    },
-    [`conversations-${user.id}`],
-    { tags: [`conversations-${user.id}`] },
-  )();
-
-  console.log("Final conversations from cache:", conversations);
-
-  return conversations;
+  return (res.Items || []) as ConversationMetadata[];
 };
 
 export type ConversationMetadata = {
@@ -252,12 +213,6 @@ export async function deleteConversation(conversationId: string) {
 
   // Wait for all image deletions to complete
   await Promise.all(imageDeletionPromises);
-
-  console.log(
-    "After Deletion: Revalidating conversation tag for user:",
-    user.id,
-  );
-  revalidateTag(`conversations-${user.id}`);
 }
 
 export const getMessages = async (
@@ -269,31 +224,18 @@ export const getMessages = async (
 
   if (!conversationId) return [];
 
-  const res = await unstable_cache(
-    async () => {
-      return await dynamodbClient.send(
-        new QueryCommand({
-          TableName: chatTable,
-          KeyConditionExpression:
-            "PK = :conv_pk AND begins_with(SK, :msg_prefix)",
-          ExpressionAttributeValues: {
-            ":conv_pk": `CONVERSATION#${conversationId}`,
-            ":msg_prefix": "MESSAGE#",
-          },
-          ScanIndexForward: true,
-          ProjectionExpression: keysOnly ? "PK, SK" : undefined,
-        }),
-      );
-    },
-    [
-      `conversation-${conversationId}-messages-${keysOnly ? "keys-only" : "full"}`,
-    ],
-    {
-      tags: [
-        `conversation-${conversationId}-messages-${keysOnly ? "keys-only" : "full"}`,
-      ],
-    },
-  )();
+  const res = await dynamodbClient.send(
+    new QueryCommand({
+      TableName: chatTable,
+      KeyConditionExpression: "PK = :conv_pk AND begins_with(SK, :msg_prefix)",
+      ExpressionAttributeValues: {
+        ":conv_pk": `CONVERSATION#${conversationId}`,
+        ":msg_prefix": "MESSAGE#",
+      },
+      ScanIndexForward: true,
+      ProjectionExpression: keysOnly ? "PK, SK" : undefined,
+    }),
+  );
 
   return (res.Items || []) as (UIMessage & { PK: string; SK: string })[];
 };
@@ -335,8 +277,6 @@ export async function updateMessage({
       },
     }),
   );
-
-  revalidateTag(`conversation-${conversationId}-messages-full`);
 
   return;
 }
