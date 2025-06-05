@@ -51,7 +51,12 @@ export async function startConversation({
     "After Creation: Revalidating conversation tag for user:",
     user.id,
   );
+  console.log("Revalidating tag:", `conversations-${user.id}`);
+
+  // Try both tag and path revalidation
   revalidateTag(`conversations-${user.id}`);
+
+  console.log("Tag revalidation completed");
 
   return conversation;
 }
@@ -142,9 +147,12 @@ export const getConversations = async () => {
   const user = await verifySession();
 
   console.log("Getting conversations for user:", user.id);
+  console.log("Cache key will be:", `conversations-${user.id}`);
+  console.log("Cache tag will be:", `conversations-${user.id}`);
 
   const conversations = await unstable_cache(
     async () => {
+      console.log("CACHE MISS: Executing DynamoDB query for conversations");
       const res = await dynamodbClient.send(
         new QueryCommand({
           TableName: chatTable,
@@ -165,7 +173,7 @@ export const getConversations = async () => {
     { tags: [`conversations-${user.id}`] },
   )();
 
-  console.log("Final conversations:", conversations);
+  console.log("Final conversations from cache:", conversations);
 
   return conversations;
 };
