@@ -1,5 +1,4 @@
 import { anthropic } from "@ai-sdk/anthropic";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   APICallError,
   appendResponseMessages,
@@ -7,8 +6,10 @@ import {
   experimental_createMCPClient as createMCPClient,
   generateObject,
   generateText,
+  Message,
   streamText,
-  tool,
+  StreamTextTransform,
+  ToolSet,
   UIMessage,
 } from "ai";
 import z from "zod";
@@ -22,7 +23,7 @@ import {
 import { getMessageAnnotations } from "@/lib/chat";
 import { verifySession } from "@/lib/dal";
 import { PLATFORM_API_KEY } from "@/lib/taintedEnvVar";
-import { toolNames } from "@/lib/tools";
+import { isToolTag, toolNames, ToolTag, toolTags } from "@/lib/tools";
 import { removeUnfishedToolCalls } from "@/lib/utils";
 
 // Allow streaming responses up to 30 seconds
@@ -37,39 +38,16 @@ export async function POST(req: Request) {
     metadata: { diseases: string[]; samples: string[] } | undefined;
   };
 
-  // TODO: clean up error handling for the MCP client initialization and tool fetching
-
   const maybeMcpClient = await getScientaMcpClient();
-  if (maybeMcpClient instanceof Error) {
-    const error = maybeMcpClient;
-    // How on earth do we have to do that to get useChat to handle errors?
-    // Found no documentation on that. Full improvisation.
-    return createDataStreamResponse({
-      execute: () => {
-        throw new Error("MCP server: " + error.message);
-      },
-      onError: errorHandler,
-    });
-  }
+  if (maybeMcpClient instanceof Error)
+    return dataStreamError(maybeMcpClient.message);
 
   const mcpClient = maybeMcpClient;
   const maybeAllTools = await getToolsFromMcpClient(mcpClient);
+  if (maybeAllTools instanceof Error)
+    return dataStreamError(maybeAllTools.message);
 
-  if (maybeAllTools instanceof Error) {
-    const error = maybeAllTools;
-    return createDataStreamResponse({
-      execute: () => {
-        throw new Error("MCP server: " + error.message);
-      },
-      onError: errorHandler,
-    });
-  }
-
-  const allTools = maybeAllTools;
-  const generateFigureTool =
-    allTools["_precisesads_generate_figure_from_dataset"];
-  delete allTools["_precisesads_generate_figure_from_dataset"];
-  const tools = allTools;
+  const tools = overrideToolExecution(maybeAllTools, id);
 
   // Need to wrap everything in createDataStreamResponse to access the dataStream
   // https://ai-sdk.dev/docs/ai-sdk-ui/streaming-data#sending-custom-data-from-the-server
@@ -90,9 +68,7 @@ export async function POST(req: Request) {
 
       const lastMessage = messages?.at(-1);
       let savedUserMessage: UIMessage | undefined;
-      console.log("Server: Last message:", lastMessage);
       if (lastMessage && lastMessage.role === "user") {
-        console.log("Server: Saving user message:", lastMessage);
         savedUserMessage = await saveMessage({
           conversationId: conversation?.id || id,
           message: lastMessage,
@@ -105,36 +81,14 @@ export async function POST(req: Request) {
 
       const result = streamText({
         model: anthropic("claude-3-7-sonnet-20250219"),
+        experimental_transform: addCustomAttributesTransform(tools),
+        toolCallStreaming: true,
         // model: anthropic("claude-3-haiku-20240307"),
         maxRetries: 0,
         maxSteps: 5,
         abortSignal: AbortSignal.timeout(1000 * 60 * 2), // 2 minutes
         messages: updatedMessages,
-        tools: Object.assign(tools, {
-          _precisesads_generate_figure_from_dataset: tool({
-            ...generateFigureTool,
-            execute: async (args, options) => {
-              const result = (await generateFigureTool.execute(
-                args,
-                options,
-              )) as unknown as
-                | {
-                    isError: false;
-                    content: [{ mimeType: string; data: string }];
-                  }
-                | { isError: true; content: [{ text: string }] };
-
-              if (result.isError) throw new Error(result.content[0].text);
-              const { mimeType, data } = result.content[0];
-              const imageData = await prepareImageForUpload(data, mimeType);
-              const uploadedImage = uploadImage({
-                ...imageData,
-                conversationId: conversation?.id || id,
-              });
-              return uploadedImage;
-            },
-          }),
-        }),
+        tools,
         system: `
           You are a immunologist agent in charge of leveraging tools at your disposal to solve biology and immunology questions 
           and help develop new treatments in immunology & inflammation.
@@ -152,20 +106,19 @@ export async function POST(req: Request) {
           console.log("StreamText error:", error);
         },
         onFinish: async ({ response }) => {
-          console.log("Serve: onFinish called");
-
           await mcpClient.close();
 
           const newMessages = appendResponseMessages({
             messages: updatedMessages,
             responseMessages: response.messages,
           });
-          const newMessage = newMessages.at(-1);
 
-          console.log("Server: New message:", newMessage);
+          const newMessage = newMessages.at(-1);
           if (!newMessage) return;
 
-          console.log("Tools: ", Object.keys(tools));
+          const newMessageWithCustomAttributes =
+            enhanceMessagesWithCustomAttributes(newMessage, tools);
+
           // The LLM might fail to generate suggestions
           // For example sometimes it doesn't generate an object of the right shape
           // Thus for now we just catcxh the error and save an empty array
@@ -185,16 +138,12 @@ export async function POST(req: Request) {
           // We save the message with the suggestions
           const annotations = [{ suggestions: suggestions ?? [] }];
 
-          console.log("Server: Saving assistant message:", {
-            ...newMessage,
-            annotations,
-          });
           const savedAssistantMessage = await saveMessage({
             conversationId: id,
             // Seems that asserting to UIMessage  legit, he is working on AI SDK
             // https://github.com/nicoalbanese/ai-sdk-persistence-db/blob/9b90886a832c9fbe816144cd753bcf4c1958470d/app/api/chat/route.ts#L87
             message: removeUnfishedToolCalls({
-              ...newMessage,
+              ...newMessageWithCustomAttributes,
               annotations,
             } as UIMessage),
           });
@@ -220,6 +169,86 @@ export async function POST(req: Request) {
     onError: errorHandler,
   });
 }
+
+type ExtendedToolSet = ToolSet & {
+  [K in keyof ToolSet]: ToolSet[K] & { tag?: ToolTag };
+};
+
+const enhanceMessagesWithCustomAttributes = (
+  message: Message,
+  tools: ExtendedToolSet,
+) => {
+  if (!message.parts) return message;
+
+  const enhancedParts: typeof message.parts = [];
+  for (const part of message.parts) {
+    if (
+      part.type !== "tool-invocation" ||
+      part.toolInvocation.state === "partial-call"
+    ) {
+      enhancedParts.push(part);
+      continue;
+    }
+
+    const toolName = part.toolInvocation.toolName;
+    const tag = tools[toolName]?.tag;
+    enhancedParts.push({
+      ...part,
+      toolInvocation: {
+        ...part.toolInvocation,
+        // @ts-expect-error - We patched the lib to be able to add custom attributes
+        customAttributes: {
+          tag,
+        },
+      },
+    });
+  }
+  message.parts = enhancedParts;
+  return message;
+};
+
+const addCustomAttributesTransform =
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  <T extends ExtendedToolSet>(tools: T): StreamTextTransform<T> =>
+    ({ tools: toolsParam }) => {
+      return new TransformStream({
+        transform(chunk, controller) {
+          if (chunk.type === "tool-call-streaming-start") {
+            controller.enqueue({
+              ...chunk,
+              // @ts-expect-error - We patched the lib to be able to add custom attributes
+              customAttributes: {
+                tag: toolsParam[chunk.toolName]?.tag,
+              },
+            });
+          } else if (chunk.type === "tool-call-delta") {
+            controller.enqueue({
+              ...chunk,
+              // @ts-expect-error - We patched the lib to be able to add custom attributes
+              customAttributes: {
+                tag: toolsParam[chunk.toolName]?.tag,
+              },
+            });
+          } else if (chunk.type === "tool-call") {
+            controller.enqueue({
+              ...chunk,
+              customAttributes: {
+                tag: toolsParam[chunk.toolName]?.tag,
+              },
+            });
+          } else if (chunk.type === "tool-result") {
+            controller.enqueue({
+              ...chunk,
+              customAttributes: {
+                tag: toolsParam[chunk.toolName]?.tag,
+              },
+            });
+          } else {
+            controller.enqueue(chunk);
+          }
+        },
+      });
+    };
 
 function errorHandler(error: unknown) {
   console.log(error);
@@ -298,16 +327,11 @@ Example format:
     maxTokens: 300,
   });
 
-  console.log("Server: Suggestions result:", JSON.stringify(res));
   return res.object;
 }
 
 const getScientaMcpClient = async () => {
-  // TODO: delete this when it is fixed
-  // https://github.com/modelcontextprotocol/python-sdk/issues/838
-  const transportType: "sse" | "http" = "sse";
-
-  if (transportType === "sse")
+  try {
     return await createMCPClient({
       transport: {
         type: "sse",
@@ -317,19 +341,11 @@ const getScientaMcpClient = async () => {
         },
       },
     });
-
-  const url = new URL(
-    "https://platform-mcp-452652483423.europe-west4.run.app/mcp/",
-  );
-  return await createMCPClient({
-    transport: new StreamableHTTPClientTransport(url, {
-      requestInit: {
-        headers: {
-          Authorization: `Bearer ${PLATFORM_API_KEY}`,
-        },
-      },
-    }),
-  });
+  } catch (error) {
+    return error instanceof Error
+      ? error
+      : new Error("Failed to create MCP client");
+  }
 };
 
 const getToolsFromMcpClient = async (
@@ -354,4 +370,64 @@ const getToolsFromMcpClient = async (
           "Unknown error occurred while fetching tools from MCP client",
         );
   }
+};
+
+const dataStreamError = (message: string) => {
+  return createDataStreamResponse({
+    execute: () => {
+      throw new Error(message);
+    },
+    onError: errorHandler,
+  });
+};
+
+const overrideToolExecution = (
+  tools: Exclude<Awaited<ReturnType<typeof getToolsFromMcpClient>>, Error>,
+  conversationId: string,
+) => {
+  const taggedTools: Record<
+    keyof typeof tools,
+    (typeof tools)[keyof typeof tools] & { tag?: ToolTag }
+  > = tools;
+  for (const name in tools) {
+    const description = tools[name].description;
+    const secondLine = description?.split("\n")[1].trim();
+    if (!secondLine?.startsWith("tags:")) continue;
+    // For now we assume there is only one tag per tool
+    const tag = secondLine.replace("tags:", "").trim();
+
+    if (!isToolTag(tag)) {
+      throw new Error(
+        `Tool ${name} has an invalid tag: ${tag}. Valid tags are: ${toolTags.join(", ")}`,
+      );
+    }
+
+    const extendedTool = tools[name];
+
+    if (tag === "image") {
+      const originalExecute = extendedTool.execute;
+      extendedTool.execute = async (args, options) => {
+        // Asserting as MCP tool return type for image tools
+        const result = (await originalExecute(args, options)) as
+          | {
+              isError: false;
+              content: [{ mimeType: string; data: string }];
+            }
+          | { isError: true; content: [{ text: string }] };
+
+        if (result.isError) throw new Error(result.content[0].text);
+        const { mimeType, data } = result.content[0];
+        const imageData = await prepareImageForUpload(data, mimeType);
+        const uploadedImage = await uploadImage({
+          ...imageData,
+          conversationId,
+        });
+        return uploadedImage;
+      };
+    }
+
+    taggedTools[name] = extendedTool;
+    taggedTools[name].tag = tag;
+  }
+  return taggedTools;
 };

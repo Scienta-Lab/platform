@@ -1,0 +1,44 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 92a80377692488c4ba8801ce33e7736ad7055e43..fc45690a41ba72ef742c8f04416daba54c3f1f5e 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -6176,7 +6176,8 @@ var DefaultStreamTextResult = class {
+               controller.enqueue(
+                 formatDataStreamPart2("tool_call_streaming_start", {
+                   toolCallId: chunk.toolCallId,
+-                  toolName: chunk.toolName
++                  toolName: chunk.toolName,
++                  customAttributes: chunk.customAttributes,
+                 })
+               );
+               break;
+@@ -6185,7 +6186,8 @@ var DefaultStreamTextResult = class {
+               controller.enqueue(
+                 formatDataStreamPart2("tool_call_delta", {
+                   toolCallId: chunk.toolCallId,
+-                  argsTextDelta: chunk.argsTextDelta
++                  argsTextDelta: chunk.argsTextDelta,
++                  customAttributes: chunk.customAttributes,
+                 })
+               );
+               break;
+@@ -6195,7 +6197,8 @@ var DefaultStreamTextResult = class {
+                 formatDataStreamPart2("tool_call", {
+                   toolCallId: chunk.toolCallId,
+                   toolName: chunk.toolName,
+-                  args: chunk.args
++                  args: chunk.args,
++                  customAttributes: chunk.customAttributes,
+                 })
+               );
+               break;
+@@ -6204,7 +6207,8 @@ var DefaultStreamTextResult = class {
+               controller.enqueue(
+                 formatDataStreamPart2("tool_result", {
+                   toolCallId: chunk.toolCallId,
+-                  result: chunk.result
++                  result: chunk.result,
++                  customAttributes: chunk.customAttributes,
+                 })
+               );
+               break;
