@@ -117,11 +117,8 @@ export default function Chat({
       // We only refresh the router to update the conversation title in the report and sidebar
       // So we only do that after the first assistant message gets back
       // Ideally we would do that as soon as the conversation is created
-      console.log({ mr: messagesRef.current?.length });
-      if (messagesRef.current && messagesRef.current.length === 2) {
-        console.log("Refreshing router after first assistant message");
+      if (messagesRef.current && messagesRef.current.length === 2)
         router.refresh();
-      }
 
       // Handles sync with additional data sent from the server
       // This is used to update the last saved user message in the chat (in order to apply the annotations)
@@ -147,22 +144,20 @@ export default function Chat({
       console.log("An error occured: ", error);
       // In case there is an error during the first assistant message, onFinish is not called
       // So we have to refresh the router here to update the conversation title in the report and sidebar
-      if (messagesRef.current && messagesRef.current.length === 2) {
+      if (messagesRef.current && messagesRef.current.length === 2)
         router.refresh();
-      }
 
       let apiError;
       try {
         apiError = JSON.parse(error.message) as object;
       } catch {}
 
-      console.log("API error: ", apiError);
+      console.log("apiError: ", apiError);
 
       // We have to distinguish between regular errors and these ones as for
       // regular ones, onFinish is called and thus the last message is saved even if unfinished.
       // But with these ones, onFinish is not called and thus we have to save the last message manually
       if (!isAPICallError(apiError) || !messagesRef.current) return;
-
       console.log("apiError is an API call error");
 
       // If the last message is already saved, we don't need to save it again

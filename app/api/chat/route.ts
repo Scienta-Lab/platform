@@ -90,9 +90,7 @@ export async function POST(req: Request) {
 
       const lastMessage = messages?.at(-1);
       let savedUserMessage: UIMessage | undefined;
-      console.log("Server: Last message:", lastMessage);
       if (lastMessage && lastMessage.role === "user") {
-        console.log("Server: Saving user message:", lastMessage);
         savedUserMessage = await saveMessage({
           conversationId: conversation?.id || id,
           message: lastMessage,
@@ -152,8 +150,6 @@ export async function POST(req: Request) {
           console.log("StreamText error:", error);
         },
         onFinish: async ({ response }) => {
-          console.log("Serve: onFinish called");
-
           await mcpClient.close();
 
           const newMessages = appendResponseMessages({
@@ -161,11 +157,8 @@ export async function POST(req: Request) {
             responseMessages: response.messages,
           });
           const newMessage = newMessages.at(-1);
-
-          console.log("Server: New message:", newMessage);
           if (!newMessage) return;
 
-          console.log("Tools: ", Object.keys(tools));
           // The LLM might fail to generate suggestions
           // For example sometimes it doesn't generate an object of the right shape
           // Thus for now we just catcxh the error and save an empty array
@@ -185,10 +178,6 @@ export async function POST(req: Request) {
           // We save the message with the suggestions
           const annotations = [{ suggestions: suggestions ?? [] }];
 
-          console.log("Server: Saving assistant message:", {
-            ...newMessage,
-            annotations,
-          });
           const savedAssistantMessage = await saveMessage({
             conversationId: id,
             // Seems that asserting to UIMessage  legit, he is working on AI SDK
@@ -298,7 +287,6 @@ Example format:
     maxTokens: 300,
   });
 
-  console.log("Server: Suggestions result:", JSON.stringify(res));
   return res.object;
 }
 
