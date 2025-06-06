@@ -58,6 +58,7 @@ import { cn, removeUnfishedToolCalls } from "@/lib/utils";
 import { Article, ArticleCollapsible } from "./article";
 import { Trial, TrialCollapsible } from "./trial";
 import { Tag } from "./ui/tag";
+import { ToolTag } from "@/app/api/chat/route";
 
 const defaultSuggestions = [
   "Can you create a gene association network for CD5, including only the 20 most co-expressed genes.",
@@ -130,6 +131,8 @@ export default function Chat({
         );
 
         if (lastMessageIdx === undefined) return;
+
+        console.log({ lastSavedUserMessage });
 
         setMessages((prev) => {
           const updatedMessages = [...prev];
@@ -234,10 +237,10 @@ export default function Chat({
     (lastMessage && getMessageAnnotations(lastMessage)?.suggestions) ?? [];
 
   console.log({
-    messages,
-    status,
-    conversationId,
-    error,
+    // messages,
+    // status,
+    // conversationId,
+    // error,
     data,
   });
 
@@ -532,6 +535,7 @@ const ChatMessage = memo(function ChatMessage({
     // Result states
     //
 
+    const tag: ToolTag = part.toolInvocation.result.tag;
     if (part.toolInvocation.result.isError) {
       return (
         <ErrorMessage key={key}>
@@ -634,12 +638,12 @@ const ChatMessage = memo(function ChatMessage({
         </TextMessage>
       );
     }
-    if (toolName === "_precisesads_generate_figure_from_dataset") {
+    if (tag === "image") {
       const { imageKey } = part.toolInvocation.result;
       return <ImageFigure key={key} imageKey={imageKey} />;
     }
 
-    if (isThinkingTool(toolName)) {
+    if (tag === "thinking") {
       return (
         <ThinkingMessage key={key} name={toolName}>
           <pre className="no-scrollbar overflow-x-auto">

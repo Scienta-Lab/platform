@@ -96,9 +96,6 @@ export function AppSidebar({
                     actionIcon={LucideTrash2}
                     onDelete={async () => {
                       await deleteConversation(conversation.id);
-                      console.log(
-                        "Refreshing router after conversation deletion",
-                      );
                       router.refresh();
                     }}
                   >

@@ -1,14 +1,13 @@
 import { anthropic } from "@ai-sdk/anthropic";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   APICallError,
   appendResponseMessages,
   createDataStreamResponse,
   experimental_createMCPClient as createMCPClient,
+  DataStreamWriter,
   generateObject,
   generateText,
   streamText,
-  tool,
   UIMessage,
 } from "ai";
 import z from "zod";
@@ -37,44 +36,22 @@ export async function POST(req: Request) {
     metadata: { diseases: string[]; samples: string[] } | undefined;
   };
 
-  // TODO: clean up error handling for the MCP client initialization and tool fetching
-
   const maybeMcpClient = await getScientaMcpClient();
-  if (maybeMcpClient instanceof Error) {
-    const error = maybeMcpClient;
-    // How on earth do we have to do that to get useChat to handle errors?
-    // Found no documentation on that. Full improvisation.
-    return createDataStreamResponse({
-      execute: () => {
-        throw new Error("MCP server: " + error.message);
-      },
-      onError: errorHandler,
-    });
-  }
+  if (maybeMcpClient instanceof Error)
+    return dataStreamError(maybeMcpClient.message);
 
   const mcpClient = maybeMcpClient;
   const maybeAllTools = await getToolsFromMcpClient(mcpClient);
-
-  if (maybeAllTools instanceof Error) {
-    const error = maybeAllTools;
-    return createDataStreamResponse({
-      execute: () => {
-        throw new Error("MCP server: " + error.message);
-      },
-      onError: errorHandler,
-    });
-  }
-
-  const allTools = maybeAllTools;
-  const generateFigureTool =
-    allTools["_precisesads_generate_figure_from_dataset"];
-  delete allTools["_precisesads_generate_figure_from_dataset"];
-  const tools = allTools;
+  if (maybeAllTools instanceof Error)
+    return dataStreamError(maybeAllTools.message);
 
   // Need to wrap everything in createDataStreamResponse to access the dataStream
   // https://ai-sdk.dev/docs/ai-sdk-ui/streaming-data#sending-custom-data-from-the-server
   return createDataStreamResponse({
     execute: async (dataStream) => {
+      const tools = overrideToolExecution(maybeAllTools, id);
+      dataStream.writeData({ tags: "kk" });
+
       let conversation:
         | Awaited<ReturnType<typeof startConversation>>
         | undefined;
@@ -103,36 +80,13 @@ export async function POST(req: Request) {
 
       const result = streamText({
         model: anthropic("claude-3-7-sonnet-20250219"),
+        toolCallStreaming: true,
         // model: anthropic("claude-3-haiku-20240307"),
         maxRetries: 0,
         maxSteps: 5,
         abortSignal: AbortSignal.timeout(1000 * 60 * 2), // 2 minutes
         messages: updatedMessages,
-        tools: Object.assign(tools, {
-          _precisesads_generate_figure_from_dataset: tool({
-            ...generateFigureTool,
-            execute: async (args, options) => {
-              const result = (await generateFigureTool.execute(
-                args,
-                options,
-              )) as unknown as
-                | {
-                    isError: false;
-                    content: [{ mimeType: string; data: string }];
-                  }
-                | { isError: true; content: [{ text: string }] };
-
-              if (result.isError) throw new Error(result.content[0].text);
-              const { mimeType, data } = result.content[0];
-              const imageData = await prepareImageForUpload(data, mimeType);
-              const uploadedImage = uploadImage({
-                ...imageData,
-                conversationId: conversation?.id || id,
-              });
-              return uploadedImage;
-            },
-          }),
-        }),
+        tools,
         system: `
           You are a immunologist agent in charge of leveraging tools at your disposal to solve biology and immunology questions 
           and help develop new treatments in immunology & inflammation.
@@ -291,11 +245,7 @@ Example format:
 }
 
 const getScientaMcpClient = async () => {
-  // TODO: delete this when it is fixed
-  // https://github.com/modelcontextprotocol/python-sdk/issues/838
-  const transportType: "sse" | "http" = "sse";
-
-  if (transportType === "sse")
+  try {
     return await createMCPClient({
       transport: {
         type: "sse",
@@ -305,19 +255,11 @@ const getScientaMcpClient = async () => {
         },
       },
     });
-
-  const url = new URL(
-    "https://platform-mcp-452652483423.europe-west4.run.app/mcp/",
-  );
-  return await createMCPClient({
-    transport: new StreamableHTTPClientTransport(url, {
-      requestInit: {
-        headers: {
-          Authorization: `Bearer ${PLATFORM_API_KEY}`,
-        },
-      },
-    }),
-  });
+  } catch (error) {
+    return error instanceof Error
+      ? error
+      : new Error("Failed to create MCP client");
+  }
 };
 
 const getToolsFromMcpClient = async (
@@ -342,4 +284,74 @@ const getToolsFromMcpClient = async (
           "Unknown error occurred while fetching tools from MCP client",
         );
   }
+};
+
+const dataStreamError = (message: string) => {
+  return createDataStreamResponse({
+    execute: () => {
+      throw new Error(message);
+    },
+    onError: errorHandler,
+  });
+};
+
+const toolTags = ["image", "thinking"] as const;
+const isToolTag = (tag: string): tag is ToolTag =>
+  toolTags.includes(tag as ToolTag);
+export type ToolTag = (typeof toolTags)[number];
+
+const overrideToolExecution = (
+  tools: Exclude<Awaited<ReturnType<typeof getToolsFromMcpClient>>, Error>,
+  conversationId: string,
+) => {
+  const taggedTools: Record<
+    keyof typeof tools,
+    (typeof tools)[keyof typeof tools] & { tag?: ToolTag }
+  > = tools;
+  for (const name in tools) {
+    const description = tools[name].description;
+    const secondLine = description?.split("\n")[1].trim();
+    if (!secondLine?.startsWith("tags:")) continue;
+    // For now we assume there is only one tag per tool
+    const tag = secondLine.replace("tags:", "").trim();
+
+    if (!isToolTag(tag)) {
+      throw new Error(
+        `Tool ${name} has an invalid tag: ${tag}. Valid tags are: ${toolTags.join(", ")}`,
+      );
+    }
+
+    const extendedTool = tools[name];
+
+    if (tag === "image") {
+      const originalExecute = extendedTool.execute;
+      extendedTool.execute = async (args, options) => {
+        // Asserting as MCP tool return type for image tools
+        const result = (await originalExecute(args, options)) as
+          | {
+              isError: false;
+              content: [{ mimeType: string; data: string }];
+            }
+          | { isError: true; content: [{ text: string }] };
+
+        if (result.isError) throw new Error(result.content[0].text);
+        const { mimeType, data } = result.content[0];
+        const imageData = await prepareImageForUpload(data, mimeType);
+        const uploadedImage = await uploadImage({
+          ...imageData,
+          conversationId,
+        });
+        return { ...uploadedImage, tag };
+      };
+    } else if (tag === "thinking") {
+      const originalExecute = extendedTool.execute;
+      extendedTool.execute = async (args, options) => {
+        const res = await originalExecute(args, options);
+        return { ...res, tag };
+      };
+    }
+
+    taggedTools[name] = extendedTool;
+  }
+  return taggedTools;
 };
