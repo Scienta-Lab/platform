@@ -37,6 +37,8 @@ export async function POST(req: Request) {
     metadata: { diseases: string[]; samples: string[] } | undefined;
   };
 
+  // TODO: clean up error handling for the MCP client initialization and tool fetching
+
   const maybeMcpClient = await getScientaMcpClient();
   if (maybeMcpClient instanceof Error) {
     const error = maybeMcpClient;
@@ -51,7 +53,19 @@ export async function POST(req: Request) {
   }
 
   const mcpClient = maybeMcpClient;
-  const allTools = await mcpClient.tools();
+  const maybeAllTools = await getToolsFromMcpClient(mcpClient);
+
+  if (maybeAllTools instanceof Error) {
+    const error = maybeAllTools;
+    return createDataStreamResponse({
+      execute: () => {
+        throw new Error("MCP server: " + error.message);
+      },
+      onError: errorHandler,
+    });
+  }
+
+  const allTools = maybeAllTools;
   const generateFigureTool =
     allTools["_precisesads_generate_figure_from_dataset"];
   delete allTools["_precisesads_generate_figure_from_dataset"];
@@ -76,6 +90,7 @@ export async function POST(req: Request) {
 
       const lastMessage = messages?.at(-1);
       let savedUserMessage: UIMessage | undefined;
+      console.log("Server: Last message:", lastMessage);
       if (lastMessage && lastMessage.role === "user") {
         console.log("Server: Saving user message:", lastMessage);
         savedUserMessage = await saveMessage({
@@ -120,15 +135,25 @@ export async function POST(req: Request) {
             },
           }),
         }),
-        system: `You are a immunologist agent in charge of leveraging tools at your disposal to solve biology and immunology questions and help develop new treatments in immunology & inflammation.${conversation?.metadata?.diseases && conversation.metadata.samples ? ` \
-          You are particularly interested in the following diseases: ${conversation.metadata.diseases.join(", ")} and tissues ${conversation.metadata.samples.join(", ")}, so use tools with the corresponding arguments.` : ""}. \
-          When you call tools, their result will be automatically displayed to the user. Do not repeat them to the user. Instead, assert that you successfully called the tool and give a bit of context if needed. \
-          Do specifically what is asked by the user, not more, do not call tools if not specifically asked in the question. \
+        system: `
+          You are a immunologist agent in charge of leveraging tools at your disposal to solve biology and immunology questions 
+          and help develop new treatments in immunology & inflammation.
+          ${
+            conversation?.metadata?.diseases && conversation.metadata.samples
+              ? ` 
+          You are particularly interested in the following diseases: ${conversation.metadata.diseases.join(", ")} and tissues ${conversation.metadata.samples.join(", ")}, so use tools with the corresponding arguments.`
+              : ""
+          }. 
+          When you call tools, their result will be automatically displayed to the user. Do not repeat them to the user. Instead,
+          assert that you successfully called the tool and give a bit of context if needed. 
+          Do specifically what is asked by the user, not more, do not call tools if not specifically asked in the question. 
           If the question is too broad or not specific enough and several tools may be useful to answer it, ask for specification, based on the tools you have at your disposal.`,
         onError: (error) => {
           console.log("StreamText error:", error);
         },
         onFinish: async ({ response }) => {
+          console.log("Serve: onFinish called");
+
           await mcpClient.close();
 
           const newMessages = appendResponseMessages({
@@ -137,17 +162,25 @@ export async function POST(req: Request) {
           });
           const newMessage = newMessages.at(-1);
 
+          console.log("Server: New message:", newMessage);
           if (!newMessage) return;
 
+          console.log("Tools: ", Object.keys(tools));
           // The LLM might fail to generate suggestions
           // For example sometimes it doesn't generate an object of the right shape
-          // Thus for now we just catch the error and save an empty array
+          // Thus for now we just catcxh the error and save an empty array
           let suggestions;
           try {
             suggestions = await generateSuggestionsFromConversation({
               messages: newMessages as UIMessage[],
+              tools,
             });
-          } catch {}
+          } catch (error) {
+            console.error(
+              "Error generating suggestions:",
+              error instanceof Error ? error.message : error,
+            );
+          }
 
           // We save the message with the suggestions
           const annotations = [{ suggestions: suggestions ?? [] }];
@@ -167,11 +200,17 @@ export async function POST(req: Request) {
           });
 
           // We append annotations from the saved message to the message we are streaming back
-          dataStream.writeMessageAnnotation({
-            ...getMessageAnnotations(savedAssistantMessage),
-          });
+          const savedAssistantMessageAnnotations = getMessageAnnotations(
+            savedAssistantMessage,
+          );
+          if (!savedAssistantMessageAnnotations)
+            throw new Error(
+              "No annotations found for the saved assistant message",
+            );
+          dataStream.writeMessageAnnotation(savedAssistantMessageAnnotations);
 
           // We send annotations from the last user message through the data stream
+          if (!savedUserMessage) throw new Error("No saved user message found");
           dataStream.writeData(JSON.parse(JSON.stringify(savedUserMessage)));
         },
       });
@@ -183,7 +222,8 @@ export async function POST(req: Request) {
 }
 
 function errorHandler(error: unknown) {
-  if (error == null) return "Unknown error";
+  console.log(error);
+  if (error === null || error === undefined) return "Unknown error";
 
   if (typeof error === "string") return error;
 
@@ -194,7 +234,11 @@ function errorHandler(error: unknown) {
 
   if (error instanceof Error) return error.message;
 
-  return JSON.stringify(error);
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "Error serialization failed";
+  }
 }
 
 // From
@@ -221,36 +265,40 @@ async function generateTitleFromUserMessage({
 
 async function generateSuggestionsFromConversation({
   messages,
+  tools,
 }: {
   messages: UIMessage[];
+  tools: Exclude<Awaited<ReturnType<typeof getToolsFromMcpClient>>, Error>;
 }) {
-  const maybeMcpClient = await getScientaMcpClient();
-  if (maybeMcpClient instanceof Error) {
-    const error = maybeMcpClient;
-    return error;
-  }
+  const toolNameKeys = Object.keys(toolNames) as [string, ...string[]];
 
-  const mcpClient = maybeMcpClient;
-  const tools = await mcpClient.tools();
   const res = await generateObject({
     model: anthropic("claude-3-5-haiku-latest"),
     output: "array",
-
     schema: z.object({
-      toolName: z.enum(Object.keys(toolNames) as [string, ...string[]]),
-      content: z.string(),
+      toolName: z.enum(toolNameKeys),
+      content: z.string().max(120),
     }),
-    system: `\n
-    - your goal is to help the user by generating follow-up prompt suggestions for them
-    - you will generate PRECISELY 2 follow-up prompt suggestions that the user could use, based on the conversation from the prompt
-    - suggestions should leverage the tools available to you
-    - a suggestion is of type: { toolName: ToolName; content: string } where ToolName is the name of the tool you suggest and content is the prompt you suggest
-    - ensure it is not more than 120 characters long
-    - do not use quotes or colons`,
-    prompt: JSON.stringify([messages, tools]),
-    maxTokens: 120,
+    system: `You are tasked with generating exactly 2 follow-up prompt suggestions for the user.
+
+Rules:
+- Generate EXACTLY 2 suggestions
+- Each suggestion must use one of these available tools: ${toolNameKeys.join(", ")}
+- Each suggestion content must be under 120 characters
+- Base suggestions on the conversation context
+- Format: Return an array of objects with toolName and content properties
+- Do not include quotes, colons, or special formatting in content
+
+Example format:
+[
+  {"toolName": "tool1", "content": "suggestion text here"},
+  {"toolName": "tool2", "content": "another suggestion"}
+]`,
+    prompt: `Conversation: ${JSON.stringify(messages)}\nAvailable tools: ${JSON.stringify(tools)}`,
+    maxTokens: 300,
   });
 
+  console.log("Server: Suggestions result:", JSON.stringify(res));
   return res.object;
 }
 
@@ -282,4 +330,28 @@ const getScientaMcpClient = async () => {
       },
     }),
   });
+};
+
+const getToolsFromMcpClient = async (
+  client: Awaited<ReturnType<typeof createMCPClient>>,
+) => {
+  try {
+    const tools = await Promise.race([
+      client.tools(),
+      new Promise<Error>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(new Error("MCP tools request timed out after 30 seconds")),
+          30_000,
+        ),
+      ),
+    ]);
+    return tools;
+  } catch (error) {
+    return error instanceof Error
+      ? error
+      : new Error(
+          "Unknown error occurred while fetching tools from MCP client",
+        );
+  }
 };

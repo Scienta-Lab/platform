@@ -246,6 +246,14 @@ export default function Chat({
     data,
   });
 
+  const parsedErrorMessage = error?.message
+    ? parseErrorMessage(error?.message)?.message
+    : undefined;
+  const errorMessage =
+    parsedErrorMessage ??
+    error?.message ??
+    "An error occurred while processing your request.";
+
   return (
     <ResizablePanelGroup className="h-full" direction="horizontal">
       <ResizablePanel
@@ -280,12 +288,7 @@ export default function Chat({
               </div>
             ) : null}
             {status === "error" ? (
-              <ErrorMessage onRetry={reload}>
-                {error?.message
-                  ? parseErrorMessage(error.message)?.message
-                  : (error?.message ??
-                    "An error occurred while processing your request.")}
-              </ErrorMessage>
+              <ErrorMessage onRetry={reload}>{errorMessage}</ErrorMessage>
             ) : null}
             {areSuggestionsVisible && lastSuggestions?.length > 0 ? (
               <Suggestions
