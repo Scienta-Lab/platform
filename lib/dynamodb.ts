@@ -13,7 +13,11 @@ const client = new DynamoDBClient({
   },
 });
 
-export const dynamodbClient = DynamoDBDocumentClient.from(client);
+export const dynamodbClient = DynamoDBDocumentClient.from(client, {
+  marshallOptions: {
+    removeUndefinedValues: true,
+  },
+});
 
 // Schema
 export type InvitationToken = {
