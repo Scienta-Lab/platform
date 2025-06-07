@@ -4,10 +4,12 @@ import {
   appendResponseMessages,
   createDataStreamResponse,
   experimental_createMCPClient as createMCPClient,
-  DataStreamWriter,
   generateObject,
   generateText,
+  Message,
   streamText,
+  StreamTextTransform,
+  ToolSet,
   UIMessage,
 } from "ai";
 import z from "zod";
@@ -21,7 +23,7 @@ import {
 import { getMessageAnnotations } from "@/lib/chat";
 import { verifySession } from "@/lib/dal";
 import { PLATFORM_API_KEY } from "@/lib/taintedEnvVar";
-import { toolNames } from "@/lib/tools";
+import { isToolTag, toolNames, ToolTag, toolTags } from "@/lib/tools";
 import { removeUnfishedToolCalls } from "@/lib/utils";
 
 // Allow streaming responses up to 30 seconds
@@ -45,13 +47,12 @@ export async function POST(req: Request) {
   if (maybeAllTools instanceof Error)
     return dataStreamError(maybeAllTools.message);
 
+  const tools = overrideToolExecution(maybeAllTools, id);
+
   // Need to wrap everything in createDataStreamResponse to access the dataStream
   // https://ai-sdk.dev/docs/ai-sdk-ui/streaming-data#sending-custom-data-from-the-server
   return createDataStreamResponse({
     execute: async (dataStream) => {
-      const tools = overrideToolExecution(maybeAllTools, id);
-      dataStream.writeData({ tags: "kk" });
-
       let conversation:
         | Awaited<ReturnType<typeof startConversation>>
         | undefined;
@@ -80,6 +81,7 @@ export async function POST(req: Request) {
 
       const result = streamText({
         model: anthropic("claude-3-7-sonnet-20250219"),
+        experimental_transform: addCustomAttributesTransform(tools),
         toolCallStreaming: true,
         // model: anthropic("claude-3-haiku-20240307"),
         maxRetries: 0,
@@ -110,8 +112,12 @@ export async function POST(req: Request) {
             messages: updatedMessages,
             responseMessages: response.messages,
           });
+
           const newMessage = newMessages.at(-1);
           if (!newMessage) return;
+
+          const newMessageWithCustomAttributes =
+            enhanceMessagesWithCustomAttributes(newMessage, tools);
 
           // The LLM might fail to generate suggestions
           // For example sometimes it doesn't generate an object of the right shape
@@ -137,10 +143,12 @@ export async function POST(req: Request) {
             // Seems that asserting to UIMessage  legit, he is working on AI SDK
             // https://github.com/nicoalbanese/ai-sdk-persistence-db/blob/9b90886a832c9fbe816144cd753bcf4c1958470d/app/api/chat/route.ts#L87
             message: removeUnfishedToolCalls({
-              ...newMessage,
+              ...newMessageWithCustomAttributes,
               annotations,
             } as UIMessage),
           });
+
+          console.log(JSON.stringify(savedAssistantMessage.parts));
 
           // We append annotations from the saved message to the message we are streaming back
           const savedAssistantMessageAnnotations = getMessageAnnotations(
@@ -163,6 +171,86 @@ export async function POST(req: Request) {
     onError: errorHandler,
   });
 }
+
+type ExtendedToolSet = ToolSet & {
+  [K in keyof ToolSet]: ToolSet[K] & { tag?: ToolTag };
+};
+
+const enhanceMessagesWithCustomAttributes = (
+  message: Message,
+  tools: ExtendedToolSet,
+) => {
+  if (!message.parts) return message;
+
+  const enhancedParts: typeof message.parts = [];
+  for (const part of message.parts) {
+    if (
+      part.type !== "tool-invocation" ||
+      part.toolInvocation.state === "partial-call"
+    ) {
+      enhancedParts.push(part);
+      continue;
+    }
+
+    const toolName = part.toolInvocation.toolName;
+    const tag = tools[toolName]?.tag;
+    enhancedParts.push({
+      ...part,
+      toolInvocation: {
+        ...part.toolInvocation,
+        // @ts-expect-error - We patched the lib to be able to add custom attributes
+        customAttributes: {
+          tag,
+        },
+      },
+    });
+  }
+  message.parts = enhancedParts;
+  return message;
+};
+
+const addCustomAttributesTransform =
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  <T extends ExtendedToolSet>(tools: T): StreamTextTransform<T> =>
+    ({ tools: toolsParam }) => {
+      return new TransformStream({
+        transform(chunk, controller) {
+          if (chunk.type === "tool-call-streaming-start") {
+            controller.enqueue({
+              ...chunk,
+              // @ts-expect-error - We patched the lib to be able to add custom attributes
+              customAttributes: {
+                tag: toolsParam[chunk.toolName]?.tag,
+              },
+            });
+          } else if (chunk.type === "tool-call-delta") {
+            controller.enqueue({
+              ...chunk,
+              // @ts-expect-error - We patched the lib to be able to add custom attributes
+              customAttributes: {
+                tag: toolsParam[chunk.toolName]?.tag,
+              },
+            });
+          } else if (chunk.type === "tool-call") {
+            controller.enqueue({
+              ...chunk,
+              customAttributes: {
+                tag: toolsParam[chunk.toolName]?.tag,
+              },
+            });
+          } else if (chunk.type === "tool-result") {
+            controller.enqueue({
+              ...chunk,
+              customAttributes: {
+                tag: toolsParam[chunk.toolName]?.tag,
+              },
+            });
+          } else {
+            controller.enqueue(chunk);
+          }
+        },
+      });
+    };
 
 function errorHandler(error: unknown) {
   console.log(error);
@@ -295,11 +383,6 @@ const dataStreamError = (message: string) => {
   });
 };
 
-const toolTags = ["image", "thinking"] as const;
-const isToolTag = (tag: string): tag is ToolTag =>
-  toolTags.includes(tag as ToolTag);
-export type ToolTag = (typeof toolTags)[number];
-
 const overrideToolExecution = (
   tools: Exclude<Awaited<ReturnType<typeof getToolsFromMcpClient>>, Error>,
   conversationId: string,
@@ -341,17 +424,12 @@ const overrideToolExecution = (
           ...imageData,
           conversationId,
         });
-        return { ...uploadedImage, tag };
-      };
-    } else if (tag === "thinking") {
-      const originalExecute = extendedTool.execute;
-      extendedTool.execute = async (args, options) => {
-        const res = await originalExecute(args, options);
-        return { ...res, tag };
+        return uploadedImage;
       };
     }
 
     taggedTools[name] = extendedTool;
+    taggedTools[name].tag = tag;
   }
   return taggedTools;
 };

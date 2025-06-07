@@ -33,19 +33,8 @@ export const toolNames = {
 
 export type ToolName = keyof typeof toolNames;
 
-export const isThinkingTool = (
-  name: ToolName,
-): name is
-  | "_immunatlas_get_metadata"
-  | "_immunatlas_get_length"
-  | "_immunatlas_get_genes_present"
-  | "_immunatlas_get_first_genes"
-  | "_immunatlas_get_obs_values" => {
-  return [
-    "_immunatlas_get_metadata",
-    "_immunatlas_get_length",
-    "_immunatlas_get_genes_present",
-    "_immunatlas_get_first_genes",
-    "_immunatlas_get_obs_values",
-  ].includes(name);
-};
+export const toolTags = ["image", "thinking"] as const;
+export type ToolTag = (typeof toolTags)[number];
+
+export const isToolTag = (tag: string): tag is ToolTag =>
+  toolTags.includes(tag as ToolTag);

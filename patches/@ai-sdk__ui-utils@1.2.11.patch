@@ -1,0 +1,20 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 1ac6e38284f63c9d8b6f2df68ee53c9c3445ee05..cbcc2737b4e79e977dfe05f61f0d8e801641ce8f 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -1016,6 +1016,7 @@ async function processChatResponse({
+       const invocation = {
+         state: "partial-call",
+         step,
++        customAttributes: value.customAttributes,
+         toolCallId: value.toolCallId,
+         toolName: value.toolName,
+         args: void 0
+@@ -1031,6 +1032,7 @@ async function processChatResponse({
+       const invocation = {
+         state: "partial-call",
+         step: partialToolCall.step,
++        customAttributes: value.customAttributes,
+         toolCallId: value.toolCallId,
+         toolName: partialToolCall.toolName,
+         args: partialArgs
