@@ -1,52 +1,55 @@
-import { LucideMinus, LucidePlus } from "lucide-react";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "./ui/collapsible";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "./ui/table";
 
 export type BiologicalProcess = {
   goId: string;
   goName: string;
   genes: string[];
+  nbGenes: string;
 };
 
-export function BiologicalProcessCollapsible({
-  biologicalProcess,
+export function BiologicalProcessTable({
+  biologicalProcesses,
   ...props
-}: { biologicalProcess: BiologicalProcess } & React.ComponentProps<
-  typeof Collapsible
+}: { biologicalProcesses: BiologicalProcess[] } & React.ComponentProps<
+  typeof Table
 >) {
   return (
-    <Collapsible className="group" {...props}>
-      <CollapsibleTrigger className="flex w-full cursor-pointer items-start justify-between gap-2 text-left select-none">
-        <p className="my-0 truncate">
-          {biologicalProcess.goName ?? "Unnamed Gene"}
-        </p>
-        <LucidePlus className="size-4 shrink-0 group-data-[state=open]:hidden" />
-        <LucideMinus className="hidden size-4 shrink-0 group-data-[state=open]:block" />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="px-1 text-xs">
-        <h3 className="mt-3 mb-2 text-sm underline underline-offset-2">
-          {biologicalProcess.goName ?? "Unnamed Gene"}
-        </h3>
-        <Metadata
-          label="GO ID"
-          value={biologicalProcess.goId ?? "No GO ID listed"}
-        />
-        <Metadata
-          label="Genes"
-          value={biologicalProcess.genes.join(", ") ?? "No genes listed"}
-        />
-      </CollapsibleContent>
-    </Collapsible>
+    <Table {...props}>
+      <TableHeader className="text-sm font-bold">
+        <TableRow className="border-gray-500">
+          <TableHead className="px-0">GO Name</TableHead>
+          <TableHead className="px-0">GO ID</TableHead>
+          <TableHead className="px-0">Genes</TableHead>
+          <TableHead className="px-0">Number of Genes</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody className="text-xs">
+        {biologicalProcesses.map((process, index) => (
+          <TableRow key={process.goId || index} className="border-gray-300">
+            <TableCell className="pl-0">
+              {process.goName || "Unnamed Process"}
+            </TableCell>
+            <TableCell className="pl-0">
+              {process.goId || "No GO ID listed"}
+            </TableCell>
+            <TableCell className="pl-0">
+              {process.genes.length > 0
+                ? process.genes.join(", ")
+                : "No genes listed"}
+            </TableCell>
+            <TableCell className="pl-0">
+              {process.nbGenes || "No number of genes listed"}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
-
-const Metadata = ({ label, value }: { label: string; value: string }) => {
-  return (
-    <p className="my-1">
-      <span className="font-bold">{label}:</span> {value}
-    </p>
-  );
-};

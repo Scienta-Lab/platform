@@ -58,7 +58,7 @@ import { cn, removeUnfishedToolCalls } from "@/lib/utils";
 import { Article, ArticleCollapsible } from "./article";
 import {
   BiologicalProcess,
-  BiologicalProcessCollapsible,
+  BiologicalProcessTable,
 } from "./biological-process";
 import { GeneAnnotation, GeneAnnotationCollapsible } from "./gene-annotation";
 import { Trial, TrialCollapsible } from "./trial";
@@ -689,22 +689,15 @@ const ChatMessage = memo(function ChatMessage({
         goId: v["GO ID"],
         goName: v["GO name"],
         genes: v["genes"],
+        nbGenes: v["number of genes"],
       }));
 
       return (
-        <TextMessage
+        <BiologicalProcessTable
           key={key}
-          role={role}
-          className="space-y-1 [&_div]:py-1 [&>div]:border-b [&>div]:border-gray-300 [&>div]:last:border-b-0"
-        >
-          {processes.map((process, n) => (
-            <BiologicalProcessCollapsible
-              key={`${process.goId}-${n}`}
-              biologicalProcess={process}
-              defaultOpen={n === 0}
-            />
-          ))}
-        </TextMessage>
+          biologicalProcesses={processes}
+          tableContainerClassName="no-scrollbar rounded-lg bg-gray-200 px-2"
+        />
       );
     }
 
