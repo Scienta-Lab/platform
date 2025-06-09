@@ -56,6 +56,11 @@ import {
 import { ToolName, ToolTag } from "@/lib/tools";
 import { cn, removeUnfishedToolCalls } from "@/lib/utils";
 import { Article, ArticleCollapsible } from "./article";
+import {
+  BiologicalProcess,
+  BiologicalProcessCollapsible,
+} from "./biological-process";
+import { GeneAnnotation, GeneAnnotationCollapsible } from "./gene-annotation";
 import { Trial, TrialCollapsible } from "./trial";
 import { Tag } from "./ui/tag";
 
@@ -551,6 +556,7 @@ const ChatMessage = memo(function ChatMessage({
     }
 
     if (toolName === "_enigma_enigma-network_generate_network") {
+      // TODO: either remove parseToolInvocationResult or use it everywhere
       const networkResult = parseToolInvocationResult<{
         nodes: string[];
         edges: { source: number; target: number; weight: number }[];
@@ -644,6 +650,64 @@ const ChatMessage = memo(function ChatMessage({
         </TextMessage>
       );
     }
+
+    if (toolName === "_enigma_gene-annotations_retrieve_gene_annotations") {
+      const annotations: GeneAnnotation[] = Object.entries(
+        JSON.parse(part.toolInvocation.result.content[0].text),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+      ).map(([k, a]: any) => ({
+        fullName: a["full name"],
+        gene: a["gene"],
+        description: a["description"],
+        ncbiCollectiondate: a["ncbi collection date"],
+      }));
+
+      return (
+        <TextMessage
+          key={key}
+          role={role}
+          className="space-y-1 [&_div]:py-1 [&>div]:border-b [&>div]:border-gray-300 [&>div]:last:border-b-0"
+        >
+          {annotations.map((annotation, n) => (
+            <GeneAnnotationCollapsible
+              key={`${annotation.fullName}-${n}`}
+              annotation={annotation}
+              defaultOpen={n === 0}
+            />
+          ))}
+        </TextMessage>
+      );
+    }
+
+    if (
+      toolName === "_enigma_gene-annotations_retrieve_go_biological_processes"
+    ) {
+      const processes: BiologicalProcess[] = Object.entries(
+        JSON.parse(part.toolInvocation.result.content[0].text),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+      ).map(([k, v]: any) => ({
+        goId: v["GO ID"],
+        goName: v["GO name"],
+        genes: v["genes"],
+      }));
+
+      return (
+        <TextMessage
+          key={key}
+          role={role}
+          className="space-y-1 [&_div]:py-1 [&>div]:border-b [&>div]:border-gray-300 [&>div]:last:border-b-0"
+        >
+          {processes.map((process, n) => (
+            <BiologicalProcessCollapsible
+              key={`${process.goId}-${n}`}
+              biologicalProcess={process}
+              defaultOpen={n === 0}
+            />
+          ))}
+        </TextMessage>
+      );
+    }
+
     if (tag === "image") {
       const { imageKey } = part.toolInvocation.result;
       return <ImageFigure key={key} imageKey={imageKey} />;
