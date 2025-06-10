@@ -275,6 +275,13 @@ export function ForceGraph({
           className="text-tiny cursor-pointer rounded border border-gray-300 bg-white px-3 py-1.5 font-medium shadow-md transition hover:bg-gray-50"
           type="button"
         >
+          Copy Genes
+        </button>
+        <button
+          onClick={handleReset}
+          className="text-tiny cursor-pointer rounded border border-gray-300 bg-white px-3 py-1.5 font-medium shadow-md transition hover:bg-gray-50"
+          type="button"
+        >
           Reset Position
         </button>
       </div>

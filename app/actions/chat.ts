@@ -12,8 +12,9 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import {
   PutObjectCommand,
-  DeleteObjectCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { UIMessage } from "ai";
@@ -184,35 +185,32 @@ export async function deleteConversation(conversationId: string) {
     );
   }
 
-  // Delete images from S3
-  const imageDeletionPromises = [];
-  for (const message of messages) {
-    for (const part of message.parts) {
-      // We keep only the parts that are images
-      if (
-        !(
-          part.type === "tool-invocation" &&
-          part.toolInvocation.state === "result" &&
-          part.toolInvocation.toolName ===
-            "dataset-analysis_precisesads_generate_figure_from_dataset"
-        )
-      )
-        return;
+  // Delete entire conversation folder from S3
+  await deleteConversationFolder(conversationId);
+}
 
-      const imageKey = part.toolInvocation.result?.key;
+async function deleteConversationFolder(conversationId: string) {
+  try {
+    const listCommand = new ListObjectsV2Command({
+      Bucket: platformBucket,
+      Prefix: `${conversationId}/`,
+    });
 
-      if (imageKey) {
-        imageDeletionPromises.push(
-          deleteImage({
-            key: imageKey,
-          }),
-        );
-      }
+    const listResponse = await s3Client.send(listCommand);
+
+    if (listResponse.Contents?.length) {
+      await s3Client.send(
+        new DeleteObjectsCommand({
+          Bucket: platformBucket,
+          Delete: {
+            Objects: listResponse.Contents.map((obj) => ({ Key: obj.Key! })),
+          },
+        }),
+      );
     }
+  } catch (error) {
+    console.error("Failed to delete conversation folder:", error);
   }
-
-  // Wait for all image deletions to complete
-  await Promise.all(imageDeletionPromises);
 }
 
 export const getMessages = async (
@@ -292,7 +290,7 @@ export async function uploadImage({
 }) {
   const user = await verifySession();
   const imageId = uuid();
-  const imageKey = `${user.id}/${conversationId}/${imageId}.${extension}`;
+  const imageKey = `${conversationId}/${imageId}.${extension}`;
 
   try {
     await s3Client.send(
@@ -318,24 +316,6 @@ export async function uploadImage({
   }
 }
 
-export async function deleteImage({ key }: { key: string }) {
-  await verifySession();
-
-  try {
-    await s3Client.send(
-      new DeleteObjectCommand({
-        Bucket: platformBucket,
-        Key: key,
-      }),
-    );
-
-    return { success: true };
-  } catch (error) {
-    console.error("Failed to delete image:", error);
-    throw new Error("Failed to delete image from S3");
-  }
-}
-
 export async function prepareImageForUpload(data: string, mimeType: string) {
   const buffer = Buffer.from(data, "base64");
 
@@ -352,12 +332,7 @@ export async function prepareImageForUpload(data: string, mimeType: string) {
 }
 
 export async function getImageUrl(key: string) {
-  const user = await verifySession();
-
-  // Verify user owns this image (check if key starts with their userId)
-  if (!key.startsWith(`${user.id}/`)) {
-    throw new Error("Forbidden: You don't have access to this image");
-  }
+  await verifySession();
 
   try {
     const command = new GetObjectCommand({
