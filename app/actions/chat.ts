@@ -149,6 +149,13 @@ export type ConversationMetadata = {
 
 export async function deleteConversation(conversationId: string) {
   const user = await verifySession();
+
+  // Verify the conversation exists and belongs to the current user
+  const conversation = await getConversation(conversationId);
+  if (!conversation) {
+    throw new Error("Conversation not found or access denied");
+  }
+
   const messages = await getMessages(conversationId);
 
   const messageDeleteRequests = messages.map((item) => ({
