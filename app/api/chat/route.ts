@@ -259,8 +259,16 @@ function errorHandler(error: unknown) {
 
   // Can't return an Error object because of createDataStreamResponse onError param type.
   // We have to send it to the client as a string and parse it there.
-  if (APICallError.isInstance(error))
-    return JSON.stringify({ type: "AI_APICallError", message: error.message });
+  if (APICallError.isInstance(error)) {
+    return JSON.stringify({
+      type: "AI_APICallError",
+      message: error.message,
+      retryAfter:
+        "responseHeaders" in error
+          ? error.responseHeaders?.["retry-after"]
+          : undefined,
+    });
+  }
 
   if (error instanceof Error) return error.message;
 

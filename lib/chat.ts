@@ -22,7 +22,11 @@ export const getMessageAnnotations = (message: UIMessage) =>
 
 export const isAPICallError = (
   error: object | undefined,
-): error is { type: "AI_APICallError"; message: string } => {
+): error is {
+  type: "AI_APICallError";
+  message: string;
+  retryAfter?: number;
+} => {
   return (
     error !== undefined &&
     "type" in error &&

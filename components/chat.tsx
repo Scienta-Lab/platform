@@ -181,7 +181,7 @@ export default function Chat({
         "messagesRef.current: ",
         messagesRef.current,
       );
-      if (savedMessages.length === messagesRef.current.length) return;
+      if (savedMessages.length >= messagesRef.current.length) return;
 
       const lastMessage = messagesRef.current.at(-1);
 
@@ -249,13 +249,13 @@ export default function Chat({
     data,
   });
 
-  const parsedErrorMessage = error?.message
-    ? parseErrorMessage(error?.message)?.message
-    : undefined;
+  const APICallError = error ? parseAPICallError(error) : undefined;
   const errorMessage =
-    parsedErrorMessage ??
+    APICallError?.message ??
     error?.message ??
     "An error occurred while processing your request.";
+
+  const retryAfter = APICallError?.retryAfter;
 
   return (
     <ResizablePanelGroup className="h-full" direction="horizontal">
@@ -291,7 +291,9 @@ export default function Chat({
               </div>
             ) : null}
             {status === "error" ? (
-              <ErrorMessage onRetry={reload}>{errorMessage}</ErrorMessage>
+              <ErrorMessage onRetry={reload} retryAfter={retryAfter}>
+                {errorMessage}
+              </ErrorMessage>
             ) : null}
             {areSuggestionsVisible && lastSuggestions?.length > 0 ? (
               <Suggestions
@@ -916,23 +918,46 @@ const parseToolInvocationResult = <T,>(
   }
 };
 
-const parseErrorMessage = (error: string) => {
+const parseAPICallError = (error: Error) => {
   try {
-    const parsedError = JSON.parse(error);
+    const parsedError = JSON.parse(error.message);
     if (isAPICallError(parsedError)) {
-      return new Error(parsedError.message);
+      return parsedError;
     }
   } catch {}
   return undefined;
 };
 
 const ErrorMessage = ({
+  retryAfter,
   children,
   onRetry,
 }: {
+  retryAfter?: number;
   children: React.ReactNode;
   onRetry?: () => void;
 }) => {
+  const [countdown, setCountdown] = useState(retryAfter);
+
+  useEffect(() => {
+    if (!retryAfter || retryAfter <= 0) return;
+    setCountdown(retryAfter);
+
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (!prev || prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [retryAfter]);
+
+  const canRetry = !countdown || countdown <= 0;
+
   return (
     <div
       className="max-w-prose rounded-lg border-l-4 border-red-500 bg-red-100 p-4 text-xs text-red-700"
@@ -943,10 +968,23 @@ const ErrorMessage = ({
       {onRetry ? (
         <button
           onClick={onRetry}
+          disabled={!canRetry}
           className="mt-1 ml-auto block text-xs font-bold text-red-700"
         >
-          Retry
-          <LucideRotateCcw className="ml-2 inline-block size-4" />
+          {canRetry ? (
+            <>
+              Retry
+              <LucideRotateCcw className="ml-2 inline-block size-4" />
+            </>
+          ) : (
+            <>
+              Retry in{" "}
+              <span className="font-mono">
+                {Math.floor(countdown / 60)}:
+                {(countdown % 60).toString().padStart(2, "0")}
+              </span>
+            </>
+          )}
         </button>
       ) : null}
     </div>
