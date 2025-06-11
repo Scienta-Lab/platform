@@ -1,8 +1,7 @@
 "use client";
 
 import { signOut } from "@/app/actions/sign-out";
-import { LucideArrowRightFromLine } from "lucide-react";
-import Image from "next/image";
+import { LucideArrowRightFromLine, LucideUser } from "lucide-react";
 import { ComponentProps } from "react";
 import { Button } from "./ui/button";
 import {
@@ -13,8 +12,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-
-import julienSrc from "@/public/julien.jpeg";
 
 export const UserMenu = ({
   children,
@@ -48,13 +45,6 @@ export const UserMenu = ({
 
 export const UserAvatar = () => (
   <div className="bg-primary grid h-10 w-10 shrink-0 place-items-center rounded-full">
-    <Image
-      src={julienSrc}
-      alt="User Avatar"
-      className="rounded-full"
-      unoptimized
-      width={40}
-      height={40}
-    />
+    <LucideUser className="border-primary h-6 w-6 rounded-full text-white" />
   </div>
 );

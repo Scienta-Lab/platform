@@ -5,14 +5,9 @@ import {
   InitiateAuthCommand,
 } from "@aws-sdk/client-cognito-identity-provider";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 
 import { cognitoClient } from "@/lib/cognito";
-import {
-  EmailAndPasswordRequiredError,
-  SignInDidntRedirectError,
-  SignInFailedError,
-} from "@/lib/errors";
+import { EmailAndPasswordRequiredError, SignInFailedError } from "@/lib/errors";
 import { getSecretHash } from "@/lib/server-utils";
 import { AWS_COGNITO_CLIENT_ID } from "@/lib/taintedEnvVar";
 
@@ -57,8 +52,7 @@ export async function signIn(formData: FormData) {
         sameSite: "lax",
       },
     );
-    redirect("/");
   }
 
-  return new SignInDidntRedirectError();
+  return res;
 }

@@ -40,8 +40,10 @@ export function AppSidebar({
   history,
   ...props
 }: ComponentProps<typeof Sidebar> & { history: ConversationMetadata[] }) {
-  const user = useUser();
+  const { user } = useUser();
   const router = useRouter();
+
+  const { name, company } = parseEmail(user?.email ?? "");
   return (
     <Sidebar className="bg-secondary/15 border-gray-200" {...props}>
       <SidebarHeader>
@@ -118,11 +120,11 @@ export function AppSidebar({
                 <div className="flex w-full items-center gap-2">
                   <UserAvatar />
                   <div className="flex flex-col gap-0.5 overflow-hidden text-xs">
-                    <p className="truncate font-bold wrap-break-word">
-                      Julien Duquesne
+                    <p className="truncate font-bold wrap-break-word capitalize">
+                      {name}
                     </p>
-                    <p className="truncate wrap-break-word text-gray-500">
-                      {user?.email ?? ""}
+                    <p className="truncate wrap-break-word text-gray-500 capitalize">
+                      {company}
                     </p>
                   </div>
                   <LucideChevronsUpDown className="ml-auto size-4 shrink-0" />
@@ -210,3 +212,10 @@ const MaybeLink = ({
   if (!href) return <>{props.children}</>;
   return <Link href={href} {...props} />;
 };
+
+export function parseEmail(email: string) {
+  const [nameRaw, domain] = email.split("@");
+  const name = nameRaw?.split(".").join(" ") || "";
+  const company = domain?.split(".")[0] || "";
+  return { name, company };
+}

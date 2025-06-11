@@ -85,12 +85,6 @@ export class NoAccessTokenError extends Error {
     this.name = "NoAccessTokenError";
   }
 }
-export class SignInDidntRedirectError extends Error {
-  constructor() {
-    super("Sign in did not redirect as expected.");
-    this.name = "SignInDidntRedirectError";
-  }
-}
 export class SignInFailedError extends Error {
   constructor(message?: string) {
     super("Sign in failed. Original error: " + message);

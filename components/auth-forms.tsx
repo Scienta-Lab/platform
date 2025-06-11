@@ -19,16 +19,23 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { useUser } from "./user-context";
 
 export function SignInForm({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<"div">) {
   const [showPassword, setShowPassword] = useState(false);
+  const { updateUser } = useUser();
 
   const handleSubmit = async (formData: FormData) => {
     const res = await signIn(formData);
-    if (res instanceof Error) toast.error(res.message, { duration: Infinity });
+    if (res instanceof Error) {
+      toast.error(res.message, { duration: Infinity });
+      return;
+    }
+    await updateUser();
+    redirect("/");
   };
 
   return (
