@@ -1,4 +1,5 @@
 import { anthropic } from "@ai-sdk/anthropic";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
   APICallError,
   appendResponseMessages,
@@ -332,14 +333,17 @@ Example format:
 
 const getScientaMcpClient = async () => {
   try {
+    const url = new URL(
+      "https://platform-mcp-452652483423.europe-west4.run.app/mcp/",
+    );
     return await createMCPClient({
-      transport: {
-        type: "sse",
-        url: "https://platform-mcp-452652483423.europe-west4.run.app/sse",
-        headers: {
-          Authorization: `Bearer ${PLATFORM_API_KEY}`,
+      transport: new StreamableHTTPClientTransport(url, {
+        requestInit: {
+          headers: {
+            Authorization: `Bearer ${PLATFORM_API_KEY}`,
+          },
         },
-      },
+      }),
     });
   } catch (error) {
     return error instanceof Error
