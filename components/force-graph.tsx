@@ -30,7 +30,7 @@ export const StaticForceGraph = ({
 export function ForceGraph({
   nodes,
   links,
-  defaultThreshold = 0.5,
+  defaultThreshold = 0.1,
   onTresholdSet,
   ...props
 }: ForceGraphProps) {

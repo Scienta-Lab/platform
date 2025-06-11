@@ -26,8 +26,8 @@ import { PLATFORM_API_KEY } from "@/lib/taintedEnvVar";
 import { isToolTag, toolNames, ToolTag, toolTags } from "@/lib/tools";
 import { removeUnfishedToolCalls } from "@/lib/utils";
 
-// Allow streaming responses up to 4 minutes
-export const maxDuration = 240;
+// Allow streaming responses up to 45 seconds
+export const maxDuration = 45;
 
 export async function POST(req: Request) {
   await verifySession();
