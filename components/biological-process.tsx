@@ -33,7 +33,7 @@ export function BiologicalProcessTable({
       <TableBody className="text-xs">
         {biologicalProcesses.map((process, index) => (
           <TableRow key={process.goId || index} className="border-gray-300">
-            <TableCell className="pl-0">
+            <TableCell className="max-w-40 pl-0 whitespace-normal">
               {process.goName || "Unnamed Process"}
             </TableCell>
             <TableCell className="pl-0">
