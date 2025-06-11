@@ -40,6 +40,7 @@ export function ForceGraph({
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const [threshold, setThreshold] = useState(defaultThreshold);
   const debouncedThreshold = useDebounce(threshold, 200);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setThreshold(defaultThreshold);
@@ -251,6 +252,14 @@ export function ForceGraph({
     }
   };
 
+  // Handler to copy genes to clipboard
+  const handleCopyGenes = async () => {
+    const geneList = filteredNodes.map((node) => node.id).join("\n");
+    await navigator.clipboard.writeText(geneList);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className="stack relative h-full w-full" {...props}>
       <div
@@ -271,15 +280,15 @@ export function ForceGraph({
           className="accent-primary w-32 bg-white"
         />
         <button
-          onClick={handleReset}
-          className="text-tiny cursor-pointer rounded border border-gray-300 bg-white px-3 py-1.5 font-medium shadow-md transition hover:bg-gray-50"
+          onClick={handleCopyGenes}
+          className="text-tiny w-22 shrink-0 cursor-pointer rounded border border-gray-300 bg-white px-3 py-1.5 font-medium shadow-md transition hover:bg-gray-50"
           type="button"
         >
-          Copy Genes
+          {copied ? "Copied!" : "Copy Genes"}
         </button>
         <button
           onClick={handleReset}
-          className="text-tiny cursor-pointer rounded border border-gray-300 bg-white px-3 py-1.5 font-medium shadow-md transition hover:bg-gray-50"
+          className="text-tiny shrink-0 cursor-pointer rounded border border-gray-300 bg-white px-3 py-1.5 font-medium shadow-md transition hover:bg-gray-50"
           type="button"
         >
           Reset Position
