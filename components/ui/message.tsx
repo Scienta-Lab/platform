@@ -56,7 +56,7 @@ export const ThinkingMessage = ({
 }) => {
   const displayName = toolNames[name];
   return (
-    <Collapsible className="group max-w-prose rounded-lg bg-violet-100 text-xs">
+    <Collapsible className="group w-full max-w-prose rounded-lg bg-violet-100 text-xs">
       <CollapsibleTrigger className="flex w-full items-center gap-2 p-2 text-xs text-gray-500">
         <LucideChevronsRight className="h-4 w-4 text-gray-500 transition-transform group-data-[state=open]:rotate-90" />
         <div className="flex w-full items-center justify-between">

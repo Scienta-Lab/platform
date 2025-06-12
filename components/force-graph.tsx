@@ -12,7 +12,7 @@ type ForceGraphProps = HTMLAttributes<HTMLDivElement> & {
   nodes: GeneNode[];
   links: GeneEdge[];
   defaultThreshold?: number;
-  onTresholdSet: (threshold: number) => void;
+  onThresholdSet: (threshold: number) => void;
 };
 
 export const StaticForceGraph = ({
@@ -31,7 +31,7 @@ export function ForceGraph({
   nodes,
   links,
   defaultThreshold = 0.1,
-  onTresholdSet,
+  onThresholdSet,
   ...props
 }: ForceGraphProps) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -276,7 +276,7 @@ export function ForceGraph({
           step={0.01}
           value={[threshold]}
           onValueChange={(values) => setThreshold(values[0])}
-          onPointerUp={() => onTresholdSet(threshold)}
+          onPointerUp={() => onThresholdSet(threshold)}
           className="accent-primary w-32 bg-white"
         />
         <button

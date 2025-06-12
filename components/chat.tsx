@@ -471,33 +471,34 @@ const ChatMessage = memo(function ChatMessage({
   };
 
   const messageAnnotations = getMessageAnnotations(message);
+
   return message.parts?.map((part, idx) => {
     const key = `${message.id}-${idx}`;
     const partKey = `part_${idx}`;
     const isInReport =
       messageAnnotations?.parts?.[partKey]?.isInReport ?? false;
+
     if (part.type !== "text" && part.type !== "tool-invocation") return null;
     if (type === "report" && !isInReport) return null;
 
-    const disabled = type === "default" && isInReport;
     const role = message.role === "user" ? "user" : "assistant";
+
+    const disabled = type === "default" && isInReport;
+    const actionProps = {
+      buttonProps: { disabled },
+      onSave:
+        type === "default"
+          ? () => updateMessageAnnotation(idx, { isInReport: true })
+          : undefined,
+      onDelete:
+        type === "report"
+          ? () => updateMessageAnnotation(idx, { isInReport: false })
+          : undefined,
+    };
 
     if (part.type === "text") {
       return (
-        <TextMessageActions
-          key={key}
-          buttonProps={{ disabled }}
-          onSave={
-            type === "default"
-              ? () => updateMessageAnnotation(idx, { isInReport: true })
-              : undefined
-          }
-          onDelete={
-            type === "report"
-              ? () => updateMessageAnnotation(idx, { isInReport: false })
-              : undefined
-          }
-        >
+        <TextMessageActions key={key} {...actionProps}>
           <MarkdownTextMessage role={role}>{part.text}</MarkdownTextMessage>
         </TextMessageActions>
       );
@@ -557,6 +558,8 @@ const ChatMessage = memo(function ChatMessage({
       );
     }
 
+    const args: Record<string, string> = part.toolInvocation.args;
+
     if (toolName === "_enigma_enigma-network_generate_network") {
       // TODO: either remove parseToolInvocationResult or use it everywhere
       const networkResult = parseToolInvocationResult<{
@@ -571,29 +574,16 @@ const ChatMessage = memo(function ChatMessage({
       const { nodes, edges } = networkResult;
 
       return (
-        <FigureMessageActions
-          key={key}
-          buttonProps={{ disabled }}
-          onSave={
-            type === "default"
-              ? () => updateMessageAnnotation(idx, { isInReport: true })
-              : undefined
-          }
-          onDelete={
-            type === "report"
-              ? () => updateMessageAnnotation(idx, { isInReport: false })
-              : undefined
-          }
-        >
+        <FigureMessageActions key={key} {...actionProps} args={args}>
           <StaticForceGraph
             defaultThreshold={messageAnnotations?.parts?.[partKey]?.threshold}
-            onTresholdSet={(threshold) =>
+            onThresholdSet={(threshold) =>
               updateMessageAnnotation(idx, { threshold })
             }
             nodes={
-              nodes.map((n, idx) => ({
+              nodes.map((n, nodeIdx) => ({
                 id: n,
-                idx,
+                idx: nodeIdx,
                 group: 1,
               })) as GeneNode[]
             }
@@ -615,19 +605,20 @@ const ChatMessage = memo(function ChatMessage({
       );
 
       return (
-        <TextMessage
-          key={key}
-          role={role}
-          className="space-y-1 [&_div]:py-1 [&>div]:border-b [&>div]:border-gray-300 [&>div]:last:border-b-0"
-        >
-          {articles.map((article, n) => (
-            <ArticleCollapsible
-              key={`${article.pmid}`}
-              article={article}
-              defaultOpen={n === 0}
-            />
-          ))}
-        </TextMessage>
+        <TextMessageActions key={key} {...actionProps} args={args}>
+          <TextMessage
+            role={role}
+            className="space-y-1 [&_div]:py-1 [&>div]:border-b [&>div]:border-gray-300 [&>div]:last:border-b-0"
+          >
+            {articles.map((article, n) => (
+              <ArticleCollapsible
+                key={`${article.pmid}`}
+                article={article}
+                defaultOpen={n === 0}
+              />
+            ))}
+          </TextMessage>
+        </TextMessageActions>
       );
     }
 
@@ -637,19 +628,20 @@ const ChatMessage = memo(function ChatMessage({
       );
 
       return (
-        <TextMessage
-          key={key}
-          role={role}
-          className="space-y-1 [&_div]:py-1 [&>div]:border-b [&>div]:border-gray-300 [&>div]:last:border-b-0"
-        >
-          {trials.map((trial, n) => (
-            <TrialCollapsible
-              key={`${trial["NCT Number"]}`}
-              trial={trial}
-              defaultOpen={n === 0}
-            />
-          ))}
-        </TextMessage>
+        <TextMessageActions key={key} {...actionProps} args={args}>
+          <TextMessage
+            role={role}
+            className="space-y-1 [&_div]:py-1 [&>div]:border-b [&>div]:border-gray-300 [&>div]:last:border-b-0"
+          >
+            {trials.map((trial, n) => (
+              <TrialCollapsible
+                key={`${trial["NCT Number"]}`}
+                trial={trial}
+                defaultOpen={n === 0}
+              />
+            ))}
+          </TextMessage>
+        </TextMessageActions>
       );
     }
 
@@ -665,19 +657,20 @@ const ChatMessage = memo(function ChatMessage({
       }));
 
       return (
-        <TextMessage
-          key={key}
-          role={role}
-          className="space-y-1 [&_div]:py-1 [&>div]:border-b [&>div]:border-gray-300 [&>div]:last:border-b-0"
-        >
-          {annotations.map((annotation, n) => (
-            <GeneAnnotationCollapsible
-              key={`${annotation.fullName}-${n}`}
-              annotation={annotation}
-              defaultOpen={n === 0}
-            />
-          ))}
-        </TextMessage>
+        <TextMessageActions key={key} {...actionProps} args={args}>
+          <TextMessage
+            role={role}
+            className="space-y-1 [&_div]:py-1 [&>div]:border-b [&>div]:border-gray-300 [&>div]:last:border-b-0"
+          >
+            {annotations.map((annotation, n) => (
+              <GeneAnnotationCollapsible
+                key={`${annotation.fullName}-${n}`}
+                annotation={annotation}
+                defaultOpen={n === 0}
+              />
+            ))}
+          </TextMessage>
+        </TextMessageActions>
       );
     }
 
@@ -695,45 +688,44 @@ const ChatMessage = memo(function ChatMessage({
       }));
 
       return (
-        <BiologicalProcessTable
-          key={key}
-          biologicalProcesses={processes}
-          tableContainerClassName="no-scrollbar rounded-lg bg-gray-200 px-2"
-        />
+        <TextMessageActions key={key} {...actionProps} args={args}>
+          <BiologicalProcessTable
+            biologicalProcesses={processes}
+            tableContainerClassName="no-scrollbar rounded-lg bg-gray-200 px-2"
+          />
+        </TextMessageActions>
       );
     }
 
     if (tag === "image") {
       const { imageKey } = part.toolInvocation.result;
-      return <ImageFigure key={key} imageKey={imageKey} />;
+      return (
+        <FigureMessageActions key={key} {...actionProps} args={args}>
+          <ImageFigure imageKey={imageKey} />
+        </FigureMessageActions>
+      );
     }
 
     if (tag === "thinking") {
       return (
-        <ThinkingMessage key={key} name={toolName}>
-          <pre className="no-scrollbar overflow-x-auto">
-            {part.toolInvocation.result.content[0].text}
-          </pre>
-        </ThinkingMessage>
+        <TextMessageActions
+          key={key}
+          {...actionProps}
+          args={args}
+          orientation="horizontal"
+        >
+          <ThinkingMessage key={key} name={toolName}>
+            <pre className="no-scrollbar overflow-x-auto">
+              {part.toolInvocation.result.content[0].text}
+            </pre>
+          </ThinkingMessage>
+        </TextMessageActions>
       );
     }
 
     // Default case for other tool invocations
     return (
-      <TextMessageActions
-        key={key}
-        buttonProps={{ disabled }}
-        onSave={
-          type === "default"
-            ? () => updateMessageAnnotation(idx, { isInReport: true })
-            : undefined
-        }
-        onDelete={
-          type === "report"
-            ? () => updateMessageAnnotation(idx, { isInReport: false })
-            : undefined
-        }
-      >
+      <TextMessageActions key={key} {...actionProps}>
         <MarkdownTextMessage key={key} role={role}>
           {part.toolInvocation.result.content[0].text}
         </MarkdownTextMessage>
@@ -747,28 +739,40 @@ const TextMessageActions = ({
   onSave,
   onDelete,
   buttonProps,
+  args,
+  orientation = "vertical",
 }: {
   children: React.ReactNode;
   onSave?: () => void;
   onDelete?: () => void;
   buttonProps?: React.ButtonHTMLAttributes<HTMLButtonElement>;
+  args?: Record<string, string>;
+  orientation?: "vertical" | "horizontal";
 }) => {
   return (
     <div className="flex w-full items-center gap-2">
       {children}
-      <Button
-        variant="outline"
-        className="mr-1 h-auto rounded-full border-none bg-white p-0! hover:scale-110 hover:bg-white"
-        size="sm"
-        onClick={onSave ?? onDelete}
-        {...buttonProps}
-      >
-        {onSave ? (
-          <LucideArrowRightCircle className="bg-primary m-0 size-7 rounded-full text-white" />
-        ) : (
-          <LucideTrash2 className="m-0 size-6 rounded-full bg-red-400 p-1 text-white" />
+      <div
+        className={cn(
+          "relative flex h-full gap-2 py-1",
+          orientation === "vertical" ? "flex-col justify-end" : "flex-row",
         )}
-      </Button>
+      >
+        {args && <ArgsPopover args={args} />}
+        <Button
+          variant="outline"
+          className="mr-1 h-auto rounded-full border-none bg-white p-0! hover:scale-110 hover:bg-white"
+          size="sm"
+          onClick={onSave ?? onDelete}
+          {...buttonProps}
+        >
+          {onSave ? (
+            <LucideArrowRightCircle className="bg-primary m-0 size-7 rounded-full text-white" />
+          ) : (
+            <LucideTrash2 className="m-0 size-6 rounded-full bg-red-400 p-1 text-white" />
+          )}
+        </Button>
+      </div>
     </div>
   );
 };
@@ -778,29 +782,91 @@ const FigureMessageActions = ({
   onSave,
   onDelete,
   buttonProps,
+  args,
 }: {
   children: React.ReactNode;
   onSave?: () => void;
   onDelete?: () => void;
   buttonProps?: React.ButtonHTMLAttributes<HTMLButtonElement>;
+  args?: Record<string, string>;
 }) => {
   return (
     <div className="stack aspect-video overflow-hidden rounded-lg border border-gray-200">
       {children}
-      <Button
-        variant="outline"
-        className="z-10 m-2 h-auto self-start justify-self-end rounded-full border-none bg-white p-0! pr-5 hover:scale-110 hover:bg-white"
-        size="sm"
-        onClick={onSave ?? onDelete}
-        {...buttonProps}
-      >
-        {onSave ? (
-          <LucideArrowRightCircle className="bg-primary m-0 size-7 rounded-full text-white" />
-        ) : (
-          <LucideTrash2 className="m-0 size-6 rounded-full bg-red-400 p-1 text-white" />
-        )}
-      </Button>
+      <div className="z-10 m-2 flex gap-2 self-start justify-self-end">
+        {args && <ArgsPopover args={args} />}
+        <Button
+          variant="outline"
+          className="h-auto rounded-full border-none bg-white p-0! hover:scale-110 hover:bg-white"
+          size="sm"
+          onClick={onSave ?? onDelete}
+          {...buttonProps}
+        >
+          {onSave ? (
+            <LucideArrowRightCircle className="bg-primary m-0 size-7 rounded-full text-white" />
+          ) : (
+            <LucideTrash2 className="m-0 size-6 rounded-full bg-red-400 p-1 text-white" />
+          )}
+        </Button>
+      </div>
     </div>
+  );
+};
+const ArgsPopover = ({
+  args,
+  className,
+}: {
+  args: Record<string, string>;
+  className?: string;
+}) => {
+  const hasPythonCode = args && "python_code" in args;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "h-auto rounded-full border-none p-0! py-0! transition-transform hover:scale-110",
+            className,
+          )}
+        >
+          <LucideBox className="m-0 size-7 rounded-full bg-gray-600 p-1 text-white" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-full max-w-150 p-3"
+        sideOffset={8}
+      >
+        <h3 className="mb-2 text-sm font-semibold">Tool Arguments</h3>
+        {hasPythonCode ? (
+          <div className="space-y-3">
+            {Object.entries(args).map(([key, value]) => (
+              <div key={key}>
+                <h4 className="mb-1 text-xs font-medium text-gray-700">
+                  {key}:
+                </h4>
+                {key === "python_code" ? (
+                  <pre className="no-scrollbar max-h-60 overflow-auto rounded bg-gray-100 p-3 font-mono text-xs">
+                    <code>{value as string}</code>
+                  </pre>
+                ) : (
+                  <pre className="no-scrollbar overflow-auto rounded bg-gray-100 p-2 text-xs whitespace-break-spaces">
+                    {typeof value === "string"
+                      ? value
+                      : JSON.stringify(value, null, 2)}
+                  </pre>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <pre className="no-scrollbar max-h-60 overflow-auto rounded bg-gray-100 p-2 text-xs whitespace-break-spaces">
+            {JSON.stringify(args, null, 2)}
+          </pre>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 };
 
@@ -1033,7 +1099,7 @@ const ImageFigure = ({ imageKey }: { imageKey: string }) => {
 
   if (isLoading) {
     return (
-      <div className="grid aspect-video place-items-center rounded border border-gray-300">
+      <div className="grid aspect-video place-items-center">
         <div className="flex flex-col items-center justify-center">
           <LucideLoader2 className="text-primary size-8 animate-spin" />
           <span className="mt-4 text-sm text-gray-500">Loading image...</span>
@@ -1044,7 +1110,7 @@ const ImageFigure = ({ imageKey }: { imageKey: string }) => {
 
   if (error) {
     return (
-      <div className="grid aspect-video place-items-center rounded border border-gray-300 bg-red-50">
+      <div className="grid aspect-video place-items-center bg-red-50">
         <div className="flex flex-col items-center justify-center text-center">
           <div className="mb-2 text-4xl text-red-500">⚠️</div>
           <span className="text-sm font-medium text-red-700">
@@ -1061,7 +1127,7 @@ const ImageFigure = ({ imageKey }: { imageKey: string }) => {
     <img
       src={url}
       alt="Generated figure"
-      className="aspect-video max-w-full rounded border border-gray-300 object-contain"
+      className="aspect-video max-w-full object-contain"
       onError={handleImageError}
     />
   );
