@@ -1,6 +1,34 @@
 # Eva
 
+# How to run locally?
+
+1. Install the dependencies using `pnpm install` (get pnpm [here](https://pnpm.io/installation))
+2. Run the dev server using `pnpm dev`
+
+# How to deploy?
+
+Just push to any branch. Vercel will trigger a deployment automatically.
+However, for now only the main branch has the env vars required to run the project.
+
+# How to invite new users?
+
+1. Sign in with an admin account (listed in `adminWhitelist` under `lib/dal.ts`).
+2. Visit `/tools/invite` and enter the user email. The user will receive an expiring link to create their account.
+
+# Where can I see all users (pending, registered, etc.)?
+
+From the AWS dashboard, go to: Cognito > Eva User Pool > And down User Management in the sidebar, click `Users`.
+
 ## DynamoDB tables
+
+We have two tables. `InvitationTokens` is very simple, but `Chat` is more complex as we store two types of data in the same table (single-table pattern).
+
+To explore or edit them, from the AWS dashboard, go to: DynamoDB > Explore Items > the table you want.
+
+You then have two options:
+
+1. Scan: go through the entire db every time. Avoid this if you can.
+2. Query: you have to enter a partition key (and can also specify a sort key). Partition and sort keys format is described below. But for example to find a given conversation, you would enter `CONVERSATION#{PK}` where `{PK}` is the conversation id you'll find in the conversation URL
 
 ### InvitationTokens
 
@@ -15,22 +43,16 @@ We store two main types of items in this table: `ConversationMetadata` and `Mess
 
 1.  **ConversationMetadata Item:**
 
-    - **Primary Key (PK):** `USER#<userId>`
+    - **Partition Key (PK):** `USER#<userId>`
       - Example: `USER#cognito_user_sub_123`
     - **Sort Key (SK):** `CONVERSATION#<conversationId>`
       - Example: `CONVERSATION#uuid_for_conversation_abc`
-    - **Attributes:**
-      - `title`: String
-      - `createdAt`: String
+    - **Attributes:** of type `ConversationMetadata` (see `app/actions/chat.ts`)
 
 2.  **Message Item:**
-    - **Primary Key (PK):** `CONVERSATION#<conversationId>`
+    - **Partition Key (PK):** `CONVERSATION#<conversationId>`
     - **Sort Key (SK):** `MESSAGE#<timestamp_iso8601>#<message_uuid>`
-    - **Attributes:**
-      - `userId`: String (Cognito user's `sub`)
-      - `role`: String ("user" or "assistant")
-      - `type`: String ("text" or "figure")
-      - `content`: String (if type is "figure", then stores stringified JSON of params required to build the figure)
+    - **Attributes:**: of type `UIMessage` (from the AI SDK) extended with `UIMessageAnnotation` (see `lib/chat.ts`)
 
 **How Access Patterns Work:**
 

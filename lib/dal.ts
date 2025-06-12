@@ -15,7 +15,6 @@ export const verifySession = cache(async () => {
 });
 
 const adminWhitelist = [
-  "borisghidaglia+scientalab@gmail.com",
   "julien.duquesne@scientalab.com",
   "jonathan.plassais@scientalab.com",
 ];
