@@ -791,7 +791,7 @@ const FigureMessageActions = ({
   args?: Record<string, string>;
 }) => {
   return (
-    <div className="stack aspect-video overflow-hidden rounded-lg border border-gray-200">
+    <div className="stack aspect-video shrink-0 overflow-hidden rounded-lg border border-gray-200">
       {children}
       <div className="z-10 m-2 flex gap-2 self-start justify-self-end">
         {args && <ArgsPopover args={args} />}
